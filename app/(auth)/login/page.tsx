@@ -87,6 +87,14 @@ function LoginContent() {
     };
   }, [router, redirectTo]);
 
+  // Immediately redirect already-authenticated users — no flash
+  useEffect(() => {
+    if (initialized && user) {
+      router.replace(redirectTo);
+    }
+  }, [initialized, user, router, redirectTo]);
+
+  // Redirect after Google redirect-flow completes
   useEffect(() => {
     if (authReady && initialized && user) {
       router.replace(redirectTo);
@@ -100,10 +108,8 @@ function LoginContent() {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await result.user.getIdToken();
-      // Create session in background, route immediately
-      createSession(idToken).catch((err) => {
-        console.error("Session creation error:", err);
-      });
+      // Await session creation — cookie must be set before navigating
+      await createSession(idToken);
       router.push(redirectTo);
     } catch (err: any) {
       setError(
@@ -126,10 +132,8 @@ function LoginContent() {
       }
 
       const idToken = await outcome.credential.user.getIdToken();
-      // Create session in background, route immediately
-      createSession(idToken).catch((err) => {
-        console.error("Session creation error:", err);
-      });
+      // Await session creation — cookie must be set before navigating
+      await createSession(idToken);
       router.push(redirectTo);
     } catch (err: any) {
       console.error("Google Auth Error:", err);

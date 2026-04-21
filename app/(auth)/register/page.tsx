@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   createUserWithEmailAndPassword,
@@ -13,14 +13,40 @@ import { signInWithGooglePopupOrRedirect } from "@/lib/google-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Flame, Mail, Lock, User, Loader2, Eye, EyeOff, ArrowLeft, CheckCircle2, Sparkles } from "lucide-react";
-
-import { useEffect } from "react";
+import {
+  Flame,
+  Mail,
+  Lock,
+  User,
+  Loader2,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+  CheckCircle2,
+  Sparkles,
+} from "lucide-react";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
 export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        </div>
+      }
+    >
+      <RegisterContent />
+    </Suspense>
+  );
+}
+
+function RegisterContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/dashboard";
   const { user, initialized } = useAuthStore();
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,6 +68,7 @@ export default function RegisterPage() {
     }
   }
 
+  // Handle Google redirect-flow result (popup-blocked fallback)
   useEffect(() => {
     let cancelled = false;
 
@@ -54,7 +81,7 @@ export default function RegisterPage() {
         await setupAccount(idToken, result.user.displayName || "User");
 
         if (!cancelled) {
-          router.replace("/dashboard");
+          router.replace(redirectTo);
         }
       } catch (err: any) {
         if (!cancelled && err?.code !== "auth/no-auth-event") {
@@ -72,13 +99,21 @@ export default function RegisterPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, redirectTo]);
 
+  // Immediately redirect already-authenticated users — no flash
+  useEffect(() => {
+    if (initialized && user) {
+      router.replace(redirectTo);
+    }
+  }, [initialized, user, router, redirectTo]);
+
+  // Redirect after Google redirect-flow completes
   useEffect(() => {
     if (authReady && initialized && user) {
-      router.replace("/dashboard");
+      router.replace(redirectTo);
     }
-  }, [authReady, initialized, user, router]);
+  }, [authReady, initialized, user, router, redirectTo]);
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -96,11 +131,9 @@ export default function RegisterPage() {
       await updateProfile(result.user, { displayName: name });
       const idToken = await result.user.getIdToken();
 
-      // Setup account (Firestore + session) in background, route immediately
-      setupAccount(idToken, name).catch((err) => {
-        console.error("Account setup error:", err);
-      });
-      router.push("/dashboard");
+      // Await account setup — session cookie must be set before navigating
+      await setupAccount(idToken, name);
+      router.push(redirectTo);
     } catch (err: any) {
       setError(
         err.code === "auth/email-already-in-use"
@@ -123,13 +156,9 @@ export default function RegisterPage() {
 
       const idToken = await outcome.credential.user.getIdToken();
 
-      // Setup account (Firestore + session) in background, route immediately
-      setupAccount(idToken, outcome.credential.user.displayName || "User").catch(
-        (err) => {
-          console.error("Account setup error:", err);
-        }
-      );
-      router.push("/dashboard");
+      // Await account setup — session cookie must be set before navigating
+      await setupAccount(idToken, outcome.credential.user.displayName || "User");
+      router.push(redirectTo);
     } catch (err: any) {
       console.error("Google Auth Error:", err);
       if (err.code !== "auth/popup-closed-by-user") {
@@ -154,7 +183,7 @@ export default function RegisterPage() {
         <div className="absolute inset-0 mesh-bg" />
         <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-accent/10 blur-[120px] float" />
         <div className="absolute bottom-1/3 left-1/3 w-[350px] h-[350px] rounded-full bg-primary/12 blur-[100px] float-delayed" />
-        
+
         <div className="relative z-10 flex flex-col items-center justify-center w-full p-12 text-center">
           <div className="w-20 h-20 rounded-2xl brand-gradient-warm flex items-center justify-center mb-8 brand-glow-warm">
             <Sparkles className="w-10 h-10 text-white" />
@@ -166,7 +195,7 @@ export default function RegisterPage() {
           <p className="text-muted-foreground max-w-sm leading-relaxed mb-10">
             Create your free account and start watching premium video content today.
           </p>
-          
+
           <div className="space-y-4 text-left w-full max-w-xs">
             {benefits.map((b, i) => (
               <div key={i} className="flex items-center gap-3 glass-card rounded-xl px-4 py-3">
@@ -181,7 +210,7 @@ export default function RegisterPage() {
       {/* Right panel — form */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12 relative">
         <div className="absolute inset-0 mesh-bg opacity-30" />
-        
+
         <div className="relative w-full max-w-md">
           <Link
             href="/"
