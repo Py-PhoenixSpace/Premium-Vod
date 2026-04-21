@@ -17,7 +17,7 @@ import {
   Minimize2,
 } from "lucide-react";
 import { createPortal } from "react-dom";
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, UserProfile } from "@/types";
 
 // ─── Single message bubble ───────────────────────────────────────────────────
 function MessageBubble({ msg, fullscreen }: { msg: ChatMessage; fullscreen: boolean }) {
@@ -61,7 +61,7 @@ function ChatPanel({
   user,
   onClose,
 }: {
-  user: NonNullable<ReturnType<typeof useAuthStore>["user"]>;
+  user: UserProfile;
   onClose: () => void;
 }) {
   const [input, setInput] = useState("");

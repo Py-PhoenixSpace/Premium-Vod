@@ -215,7 +215,7 @@ export function PremiumModal() {
         order_id: data.orderId,
         // Pre-fill user details so Razorpay skips the contact info form
         prefill: {
-          name: user?.name ?? "",
+          name: user?.displayName ?? "",
           email: user?.email ?? "",
           contact: "",
         },

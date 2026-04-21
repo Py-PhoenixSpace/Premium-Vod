@@ -12,7 +12,7 @@ import {
 import { db } from "@/lib/firebase";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useSupportChat } from "@/lib/hooks/useSupportChat";
-import type { SupportChat, ChatMessage } from "@/types";
+import type { SupportChat, ChatMessage, UserProfile } from "@/types";
 import {
   MessageCircle,
   Headphones,
@@ -63,7 +63,7 @@ function ConversationPanel({
   onBack,
 }: {
   chat: SupportChat;
-  adminUser: NonNullable<ReturnType<typeof useAuthStore>["user"]>;
+  adminUser: UserProfile;
   onBack: () => void;
 }) {
   const [input, setInput] = useState("");
