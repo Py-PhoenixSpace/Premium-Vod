@@ -1,0 +1,182 @@
+|-- .env.local
+|-- .gitignore
+|-- AGENTS.md
+|-- app
+    |-- (admin)
+        |-- admin
+            |-- layout.tsx
+            |-- loading.tsx
+            |-- page.tsx
+            |-- pricing
+                |-- page.tsx
+            |-- support
+                |-- loading.tsx
+                |-- page.tsx
+            |-- upload
+                |-- page.tsx
+            |-- users
+                |-- page.tsx
+            |-- videos
+                |-- page.tsx
+    |-- (auth)
+        |-- login
+            |-- page.tsx
+        |-- register
+            |-- page.tsx
+    |-- (dashboard)
+        |-- dashboard
+            |-- loading.tsx
+            |-- page.tsx
+        |-- watch
+            |-- [id]
+                |-- layout.tsx
+                |-- loading.tsx
+                |-- page.tsx
+        |-- workouts
+            |-- loading.tsx
+            |-- page.tsx
+    |-- (super-admin)
+        |-- super-admin
+            |-- layout.tsx
+            |-- loading.tsx
+            |-- page.tsx
+            |-- users
+                |-- page.tsx
+    |-- (tools)
+        |-- mvp-generator
+    |-- api
+        |-- admin
+            |-- check-title
+                |-- route.ts
+            |-- pricing
+                |-- route.ts
+            |-- social-links
+                |-- route.ts
+            |-- storage
+                |-- route.ts
+            |-- users
+                |-- route.ts
+        |-- auth
+            |-- register
+                |-- route.ts
+            |-- session
+                |-- route.ts
+        |-- pricing
+            |-- route.ts
+        |-- razorpay
+            |-- cancel-subscription
+                |-- route.ts
+            |-- order
+                |-- route.ts
+            |-- subscribe
+                |-- route.ts
+            |-- verify
+                |-- route.ts
+            |-- verify-subscription
+                |-- route.ts
+        |-- social-links
+            |-- route.ts
+        |-- stripe
+            |-- cancel-subscription
+                |-- route.ts
+            |-- checkout
+                |-- route.ts
+            |-- webhook
+                |-- route.ts
+        |-- super-admin
+            |-- impersonate
+                |-- route.ts
+            |-- revert
+                |-- route.ts
+            |-- users
+                |-- route.ts
+        |-- video
+            |-- archive
+                |-- route.ts
+            |-- delete
+                |-- route.ts
+            |-- finalize
+                |-- route.ts
+            |-- progress
+                |-- route.ts
+            |-- stream
+                |-- route.ts
+            |-- upload
+                |-- route.ts
+            |-- webhook
+                |-- route.ts
+    |-- globals.css
+    |-- layout.tsx
+    |-- page.tsx
+    |-- robots.ts
+    |-- sitemap.ts
+    |-- videos
+        |-- page.tsx
+|-- CLAUDE.md
+|-- components
+    |-- ExpiredSubscriptionModal.tsx
+    |-- ImpersonationBanner.tsx
+    |-- Navbar.tsx
+    |-- PremiumModal.tsx
+    |-- providers
+        |-- AuthProvider.tsx
+        |-- ThemeProvider.tsx
+    |-- PurchaseButton.tsx
+    |-- SkeletonCard.tsx
+    |-- SubscribeButton.tsx
+    |-- SubscriptionManager.tsx
+    |-- SupportChatFAB.tsx
+    |-- ThemeToggle.tsx
+    |-- ui
+        |-- button.tsx
+        |-- card.tsx
+        |-- dialog.tsx
+        |-- input.tsx
+        |-- label.tsx
+    |-- VideoCard.tsx
+    |-- VideoPlayer.tsx
+    |-- WelcomePremiumModal.tsx
+|-- components.json
+|-- eslint.config.mjs
+|-- firestore.rules
+|-- lib
+    |-- auth-guards.ts
+    |-- cloudinary-buckets.ts
+    |-- cloudinary.ts
+    |-- firebase-admin.ts
+    |-- firebase.ts
+    |-- google-auth.ts
+    |-- hooks
+        |-- useSupportChat.ts
+    |-- social-links.ts
+    |-- stores
+        |-- auth-store.ts
+        |-- ui-store.ts
+    |-- subscription-pricing.ts
+    |-- subscription-utils.ts
+    |-- utils.ts
+|-- next-env.d.ts
+|-- next.config.ts
+|-- package-lock.json
+|-- package.json
+|-- postcss.config.mjs
+|-- proxy.ts
+|-- public
+    |-- apple-touch-icon.png
+    |-- favicon.png
+    |-- file.svg
+    |-- globe.svg
+    |-- icons
+        |-- icon-192.png
+        |-- icon-512.png
+    |-- logo.png
+    |-- manifest.json
+    |-- next.svg
+    |-- vercel.svg
+    |-- window.svg
+|-- README.md
+|-- tailwind.config.ts
+|-- tsconfig.json
+|-- tsconfig.tsbuildinfo
+|-- types
+    |-- index.ts

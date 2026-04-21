@@ -1,0 +1,44 @@
+{
+  "name": "PremiumVOD — Premium Video Content",
+  "short_name": "PremiumVOD",
+  "description": "Premium video content on demand. Stream 4K cinema-quality videos.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0614",
+  "theme_color": "#7c3aed",
+  "lang": "en",
+  "categories": ["entertainment", "video", "streaming"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Browse Videos",
+      "short_name": "Videos",
+      "description": "Explore our full video library",
+      "url": "/videos",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "My Dashboard",
+      "short_name": "Dashboard",
+      "description": "View your personal dashboard",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
