@@ -110,7 +110,9 @@ function LoginContent() {
       const idToken = await result.user.getIdToken();
       // Await session creation — cookie must be set before navigating
       await createSession(idToken);
-      router.push(redirectTo);
+      // Hard navigation ensures the browser sends the fresh session cookie
+      // with the request — client-side router cache would race and lose.
+      window.location.href = redirectTo;
     } catch (err: any) {
       setError(
         err.code === "auth/invalid-credential"
@@ -134,7 +136,8 @@ function LoginContent() {
       const idToken = await outcome.credential.user.getIdToken();
       // Await session creation — cookie must be set before navigating
       await createSession(idToken);
-      router.push(redirectTo);
+      // Hard navigation ensures the browser sends the fresh session cookie.
+      window.location.href = redirectTo;
     } catch (err: any) {
       console.error("Google Auth Error:", err);
       if (err.code !== "auth/popup-closed-by-user") {

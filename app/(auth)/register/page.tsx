@@ -133,7 +133,9 @@ function RegisterContent() {
 
       // Await account setup — session cookie must be set before navigating
       await setupAccount(idToken, name);
-      router.push(redirectTo);
+      // Hard navigation ensures the browser sends the fresh session cookie
+      // with the request — client-side router cache would race and lose.
+      window.location.href = redirectTo;
     } catch (err: any) {
       setError(
         err.code === "auth/email-already-in-use"
