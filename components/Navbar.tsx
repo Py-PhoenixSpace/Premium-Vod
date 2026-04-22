@@ -9,7 +9,6 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
-  Flame,
   Menu,
   X,
   LogOut,
@@ -140,7 +139,7 @@ export default function Navbar() {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group">
             <div className="relative w-9 h-9 rounded-lg brand-gradient flex items-center justify-center transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg group-hover:shadow-primary/30">
-              <Flame className="w-5 h-5 text-white" />
+              <span className="text-white text-[11px] font-extrabold tracking-tight leading-none select-none">FR</span>
               <div className="absolute inset-0 rounded-lg bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <span className="text-xl font-bold font-[family-name:var(--font-heading)] tracking-tight">
