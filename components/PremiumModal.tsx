@@ -65,6 +65,7 @@ interface RazorpayCheckoutOptions {
 
 interface RazorpayCheckoutInstance {
   open: () => void;
+  on: (event: string, handler: (response: any) => void) => void;
 }
 
 type RazorpayConstructor = new (
