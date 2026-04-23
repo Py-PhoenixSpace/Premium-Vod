@@ -12,7 +12,7 @@ export default function TermsPage() {
     <main className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border/30 bg-muted/10">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <Link
             href="/"
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8"
