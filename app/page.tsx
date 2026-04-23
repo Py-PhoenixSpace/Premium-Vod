@@ -218,19 +218,19 @@ export default function HomePage() {
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent"></span>
             </span>
             <span className="text-xs font-semibold text-foreground tracking-wide">
-              Introducing PremiumVOD v2.0 <span className="opacity-50 mx-2">|</span> <span className="text-accent">Premium SaaS Update</span>
+              New content drops weekly <span className="opacity-50 mx-2">|</span> <span className="text-accent">FitRahul Premium</span>
             </span>
           </div>
 
-          {/* SaaS Headline */}
+          {/* Hero Headline */}
           <h1 className="text-3xl sm:text-6xl lg:text-8xl font-bold leading-[1.1] tracking-tight font-[family-name:var(--font-heading)] animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100 max-w-5xl px-1 sm:px-0">
-            The intelligent way to
+            Train smarter with
             <br className="hidden md:block" />
-            <span className="brand-gradient-text px-2">stream</span> premium stories.
+            <span className="brand-gradient-text px-2">Rahul&apos;s</span> premium fitness content.
           </h1>
 
           <p className="mt-5 sm:mt-6 text-sm sm:text-xl text-muted-foreground max-w-2xl leading-relaxed animate-in fade-in slide-in-from-bottom-6 duration-700 delay-200 px-3 sm:px-0">
-              Enterprise-grade video platform. Cinematic 4K premium content, real-time analytics, and advanced streaming — engineered for content excellence.
+            On-demand workout videos, gym training programs, and exclusive fitness releases — subscribe for unlimited access or purchase individual videos.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center gap-4 mt-10 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-300">
@@ -244,20 +244,12 @@ export default function HomePage() {
               </Button>
             </Link>
             <div className="flex items-center gap-4 px-6 text-sm font-medium text-muted-foreground">
-              <div className="flex -space-x-3">
-                <div className="w-10 h-10 rounded-full border-2 border-background z-30 brand-gradient flex items-center justify-center text-xs font-bold text-white shadow-sm">
-                  JD
-                </div>
-                <div className="w-10 h-10 rounded-full border-2 border-background z-20 bg-accent flex items-center justify-center text-xs font-bold text-accent-foreground shadow-sm">
-                  AK
-                </div>
-                <div className="w-10 h-10 rounded-full border-2 border-background z-10 bg-chart-4 flex items-center justify-center text-xs font-bold text-white shadow-sm">
-                  SR
-                </div>
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                <Play className="w-5 h-5 text-primary" fill="currentColor" />
               </div>
               <div className="text-left leading-tight">
-                <span className="text-foreground font-bold">10,000+</span><br/>
-                Active Members
+                <span className="text-foreground font-bold">500+</span><br/>
+                Premium Videos
               </div>
             </div>
           </div>
@@ -578,63 +570,69 @@ export default function HomePage() {
         <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-background to-transparent z-40" />
       </section>
 
-      {/* ── Brand Logos / Social Proof ──────────────────────────────── */}
+      {/* ── Platform Stats Bar ──────────────────────────────────────── */}
       <section className="py-10 border-b border-border/30 bg-muted/10">
         <div className="max-w-7xl mx-auto px-4">
-           <p className="text-center text-xs font-bold uppercase tracking-widest text-muted-foreground mb-6">Trusted by athletes worldwide</p>
-           <div className="flex flex-wrap justify-center gap-8 md:gap-16 opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
-             {/* Abstract fake logos for corporate SaaS feel */}
-             {["TechFit", "AlphaGear", "Pulse", "Velocity", "Aura"].map((logo) => (
-                <div key={logo} className="text-xl font-bold font-mono flex items-center gap-2">
-                  <Flame className="w-5 h-5" /> {logo}
-                </div>
-             ))}
-           </div>
+          <p className="text-center text-xs font-bold uppercase tracking-widest text-muted-foreground mb-6">What&apos;s inside FitRahul Premium</p>
+          <div className="flex flex-wrap justify-center gap-8 md:gap-16">
+            {[
+              { label: "Workout Videos", value: "500+" },
+              { label: "Content Updated", value: "Weekly" },
+              { label: "Training Programs", value: "Multi-level" },
+              { label: "Access", value: "Instant" },
+              { label: "Support", value: "Direct" },
+            ].map((stat) => (
+              <div key={stat.label} className="text-center">
+                <p className="text-xl font-bold font-mono text-foreground">{stat.value}</p>
+                <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">{stat.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── Bento Box Features (SaaS layout) ────────────────────────── */}
+      {/* ── Features (Bento Box) ─────────────────────────────────────── */}
       <section className="py-32 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-20">
             <h2 className="text-4xl sm:text-5xl font-bold font-[family-name:var(--font-heading)]">
-              Engineered for <span className="brand-gradient-text">Excellence.</span>
+              Built for <span className="brand-gradient-text">Serious Training.</span>
             </h2>
             <p className="mt-4 text-xl text-muted-foreground max-w-2xl mx-auto">
-              We ditched the generic offerings. Everything here is built like a precision machine to optimize your viewing and content experience.
+              Everything you need to follow Rahul&apos;s fitness programs — on your schedule, on any device.
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-5 auto-rows-auto md:auto-rows-[300px]">
-            {/* Box 1 (Wide) */}
+            {/* Box 1 (Wide) — Watch History */}
             <div className="md:col-span-2 glass-card rounded-3xl p-8 relative overflow-hidden group card-hover border border-border/50">
               <div className="absolute right-0 top-0 w-1/2 h-full bg-gradient-to-l from-primary/10 to-transparent transition-opacity group-hover:opacity-50" />
               <div className="relative z-10 h-full flex flex-col justify-between">
                 <div>
                   <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
-                    <LineChart className="w-6 h-6 text-primary" />
+                    <Clock className="w-6 h-6 text-primary" />
                   </div>
-                  <h3 className="text-2xl font-bold mb-2">Advanced Analytics</h3>
+                  <h3 className="text-2xl font-bold mb-2">Watch History &amp; Progress</h3>
                   <p className="text-muted-foreground max-w-sm leading-relaxed">
-                    Track every rep, set, and session. Our dashboard turns your sweat into quantifiable data so you never hit a plateau.
+                    Pick up exactly where you left off. Your progress is saved across sessions so you never lose your place in a program.
                   </p>
                 </div>
                 <Link href="/register" className="inline-flex items-center text-primary font-semibold group-hover:text-accent transition-colors mt-4">
-                  Explore dashboard <ArrowRight className="w-4 h-4 ml-1" />
+                  Start watching <ArrowRight className="w-4 h-4 ml-1" />
                 </Link>
               </div>
             </div>
 
-            {/* Box 2 (Tall) */}
+            {/* Box 2 (Tall) — HD Video */}
             <div className="md:row-span-2 glass-card rounded-3xl p-8 relative overflow-hidden group card-hover border border-border/50 brand-glow-soft">
               <div className="absolute inset-0 bg-gradient-to-t from-accent/10 to-transparent transition-opacity opacity-0 group-hover:opacity-100" />
               <div className="relative z-10 h-full flex flex-col">
                 <div className="w-12 h-12 rounded-2xl brand-gradient flex items-center justify-center mb-6 shadow-lg shadow-primary/30">
                   <Play className="w-6 h-6 text-white ml-0.5" fill="currentColor" />
                 </div>
-                <h3 className="text-2xl font-bold mb-2">Cinematic 4K</h3>
+                <h3 className="text-2xl font-bold mb-2">HD Premium Content</h3>
                 <p className="text-muted-foreground leading-relaxed flex-1">
-                  Immersive premium videos shot on RED cameras. Experience video content that looks and feels like a blockbuster movie right in your living room.
+                  Workout videos produced for crisp, clear viewing on any screen. Every video is optimised for smooth playback on mobile, tablet, and desktop.
                 </p>
                 <div className="w-full h-48 rounded-2xl bg-muted/30 border border-border/40 overflow-hidden relative mt-8">
                   <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'2\' numOctaves=\'2\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\' opacity=\'0.2\'/%3E%3C/svg%3E')] opacity-30 mix-blend-overlay" />
@@ -643,25 +641,25 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Box 3 */}
+            {/* Box 3 — Fast streaming */}
             <div className="glass-card rounded-3xl p-8 relative overflow-hidden group card-hover border border-border/50">
                <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center mb-6">
                  <Shield className="w-6 h-6 text-accent" />
                </div>
-               <h3 className="text-xl font-bold mb-2">Zero Buffering</h3>
+               <h3 className="text-xl font-bold mb-2">Fast, Reliable Streaming</h3>
                <p className="text-sm text-muted-foreground leading-relaxed">
-                 Powered by global edge networks. Your videos start instantly, every single time.
+                 Videos are delivered via Cloudinary&apos;s global CDN — fast-loading and buffer-free on any connection.
                </p>
             </div>
 
-            {/* Box 4 */}
+            {/* Box 4 — Direct access */}
             <div className="glass-card rounded-3xl p-8 relative overflow-hidden group card-hover border border-border/50">
                <div className="w-12 h-12 rounded-2xl bg-chart-4/10 flex items-center justify-center mb-6">
                  <Users className="w-6 h-6 text-chart-4" />
                </div>
-               <h3 className="text-xl font-bold mb-2">Elite Community</h3>
+               <h3 className="text-xl font-bold mb-2">Direct Access to Rahul</h3>
                <p className="text-sm text-muted-foreground leading-relaxed">
-                 Join dedicated athletes pushing limits. Iron sharpens iron.
+                 Get support and stay connected via WhatsApp, Instagram, and social channels — directly with Rahul.
                </p>
             </div>
           </div>
@@ -697,11 +695,11 @@ export default function HomePage() {
               
               <ul className="space-y-4 mb-10">
                 {[
-                  "Unlimited video access",
+                  "Unlimited access to all videos",
                   "New content every week",
-                  "Standard quality streaming",
-                  "Community support",
-                  "Chat with Rahul 24/7",
+                  "HD quality streaming",
+                  "Watch history & progress tracking",
+                  "Chat with Rahul directly",
                 ].map((f, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm font-medium text-foreground/80">
                     <CheckCircle2 className="w-5 h-5 text-muted-foreground" />
@@ -741,9 +739,9 @@ export default function HomePage() {
                 {[
                   "Unlimited access to 500+ videos",
                   "New drops every week",
-                  "4K premium quality streaming",
-                  "Advanced analytics & tracking",
-                  "Chat with Rahul 24/7",
+                  "HD premium quality streaming",
+                  "Watch history & progress tracking",
+                  "Chat with Rahul directly",
                   "Priority support",
                 ].map((f, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm font-bold text-foreground">
@@ -778,11 +776,11 @@ export default function HomePage() {
               
               <ul className="space-y-4 mb-10">
                 {[
-                  "Unlimited video access",
+                  "Unlimited access to 500+ videos",
                   "New content every week",
-                  "4K premium quality",
-                  "Advanced analytics",
-                  "Chat with Rahul 24/7",
+                  "HD premium quality",
+                  "Watch history & progress tracking",
+                  "Chat with Rahul directly",
                   "VIP priority support",
                 ].map((f, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm font-medium text-foreground/80">
@@ -791,6 +789,9 @@ export default function HomePage() {
                   </li>
                 ))}
               </ul>
+              <p className="text-[11px] text-muted-foreground/60 mb-6 leading-relaxed">
+                Subscriptions grant access to all published content for the active period. Individual videos can also be purchased for permanent access.
+              </p>
               
               <Link href="/register" className="block w-full">
                 <Button className="w-full h-14 rounded-xl font-bold text-base bg-muted text-foreground hover:bg-muted/80 border border-border/50 transition-all">
@@ -829,7 +830,8 @@ export default function HomePage() {
       {/* ── Footer ──────────────────────────────────────────────────── */}
       <footer className="border-t border-border/30 py-16 bg-background">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex flex-col md:flex-row items-start justify-between gap-8">
+            {/* Brand */}
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl brand-gradient flex items-center justify-center shadow-lg">
                 <Flame className="w-5 h-5 text-white" />
@@ -839,8 +841,9 @@ export default function HomePage() {
                 <span className="brand-gold-text">Rahul</span>
               </span>
             </div>
-            
-            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 text-sm font-medium text-muted-foreground">
+
+            {/* Nav links */}
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-sm font-medium text-muted-foreground">
               <Link href="/videos" className="hover:text-foreground transition-colors">Catalog</Link>
               {(!initialized || !user) ? (
                 <>
@@ -851,9 +854,18 @@ export default function HomePage() {
                 <Link href="/dashboard" className="hover:text-foreground transition-colors">Dashboard</Link>
               )}
             </div>
-            
-            <p className="text-sm font-medium text-muted-foreground/60">
-              &copy; {new Date().getFullYear()} PremiumVOD. All systems operational.
+
+            {/* Legal links */}
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-sm font-medium text-muted-foreground">
+              <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+              <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
+              <Link href="/refund" className="hover:text-foreground transition-colors">Refund Policy</Link>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-border/20">
+            <p className="text-xs text-muted-foreground/50 text-center">
+              &copy; {new Date().getFullYear()} FitRahul. All rights reserved. &bull; Contact: dravidrahul.p@gmail.com
             </p>
           </div>
         </div>

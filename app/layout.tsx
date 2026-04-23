@@ -20,26 +20,27 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://premiumvod.com";
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: {
-    default: "PremiumVOD — Premium Video Content",
-    template: "%s | PremiumVOD",
+    default: "FitRahul — Premium Fitness Video Content",
+    template: "%s | FitRahul",
   },
   description:
-    "Access premium video content on demand. Stream 4K cinematic videos, tutorials, and exclusive releases. Subscribe or purchase to unlock unlimited access.",
+    "FitRahul — Premium fitness videos on demand by Rahul. Subscribe for unlimited access to workout videos, gym training programs, and exclusive fitness content. Subscribe monthly or purchase individual videos.",
   keywords: [
-    "video",
-    "streaming",
-    "premium content",
-    "VOD",
+    "fitness videos",
+    "workout videos online",
+    "gym training videos",
+    "premium fitness content",
     "video on demand",
-    "4K videos",
-    "PremiumVOD",
+    "FitRahul",
+    "Rahul fitness",
+    "online workout subscription",
   ],
-  authors: [{ name: "PremiumVOD" }],
+  authors: [{ name: "FitRahul" }],
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "PremiumVOD",
+    title: "FitRahul",
   },
   icons: {
     icon: "/favicon.png",
@@ -47,26 +48,26 @@ export const metadata: Metadata = {
     other: [{ rel: "manifest", url: "/manifest.json" }],
   },
   openGraph: {
-    title: "PremiumVOD — Premium Video Content",
+    title: "FitRahul — Premium Fitness Video Content",
     description:
-      "Stream premium video content on demand. Exclusive releases, 4K videos, and more. Subscribe or purchase today.",
+      "Access Rahul's premium gym and workout videos on demand. Subscribe for unlimited access or purchase individual videos. New content added every week.",
     type: "website",
     url: APP_URL,
-    siteName: "PremiumVOD",
+    siteName: "FitRahul",
     images: [
       {
         url: "/og-default.jpg",
         width: 1200,
         height: 630,
-        alt: "PremiumVOD — Premium Video Platform",
+        alt: "FitRahul — Premium Fitness Video Platform",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "PremiumVOD — Premium Video Content",
+    title: "FitRahul — Premium Fitness Video Content",
     description:
-      "Stream premium video content on demand. Exclusive releases, 4K videos, tutorials, and more.",
+      "Access Rahul's premium gym and workout videos on demand. Subscribe for unlimited access or buy individual videos.",
     images: ["/og-default.jpg"],
   },
   robots: {

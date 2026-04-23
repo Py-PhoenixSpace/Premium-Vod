@@ -245,7 +245,7 @@ export default function DashboardPage() {
                   <Crown className="w-5 h-5 text-accent" />
                 </div>
                 <div>
-                  <p className="font-bold">Unlock PremiumVOD</p>
+                  <p className="font-bold">Unlock FitRahul Premium</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Unlimited access to all media, new releases, and exclusive content.
                   </p>
