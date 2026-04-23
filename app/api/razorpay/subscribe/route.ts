@@ -92,12 +92,12 @@ export async function POST(request: NextRequest) {
       currency: "INR",
       plan: selectedPlan,
       durationMonths: selectedPlanMonths,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+      keyId: process.env.RAZORPAY_KEY_ID,
     });
   } catch (error: any) {
     console.error("Razorpay subscription order failed:", error);
     return Response.json(
-      { error: "Failed to create subscription order" },
+      { error: error?.error?.description || error?.message || "Failed to create subscription order" },
       { status: 500 }
     );
   }

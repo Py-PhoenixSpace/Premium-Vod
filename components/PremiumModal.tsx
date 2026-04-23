@@ -241,13 +241,6 @@ export function PremiumModal() {
             console.error("Payment verification failed:", err);
           }
         },
-        // Explicitly enable all payment methods including UPI ID entry
-        method: {
-          upi: true,
-          card: true,
-          netbanking: true,
-          wallet: true,
-        },
         modal: {
           ondismiss: function () {
             setLoading(false);
