@@ -113,12 +113,14 @@ export default function DashboardPage() {
     { key: "purchased", label: "My Library", icon: BookOpen,   description: "Items you own" },
   ];
 
-  const greeting = (() => {
+  const [greeting, setGreeting] = useState("Welcome");
+
+  useEffect(() => {
     const h = new Date().getHours();
-    if (h < 12) return "Good morning";
-    if (h < 17) return "Good afternoon";
-    return "Good evening";
-  })();
+    if (h < 12) setGreeting("Good morning");
+    else if (h < 17) setGreeting("Good afternoon");
+    else setGreeting("Good evening");
+  }, []);
 
   const isPremium = isSubscriptionValid(user?.subscription);
 

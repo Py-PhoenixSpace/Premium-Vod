@@ -253,7 +253,7 @@ export default function AdminSupportPage() {
               <ShieldCheck className="w-4 h-4 text-white" />
             </div>
             <h1 className="text-2xl font-bold font-heading">
-              Chat with Admin <span className="brand-gradient-text">Inbox</span>
+              Chat with Rahul <span className="brand-gradient-text">Inbox</span>
             </h1>
           </div>
           <p className="text-sm text-muted-foreground">

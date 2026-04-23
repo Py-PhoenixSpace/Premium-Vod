@@ -155,7 +155,7 @@ function ChatPanel({
             <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           <div className="relative flex-1 min-w-0">
-            <p className="text-white font-bold text-base leading-tight">Chat with Admin</p>
+            <p className="text-white font-bold text-base leading-tight">Chat with Rahul</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
               <p className="text-white/75 text-xs">Admin online 24/7 · Premium exclusive</p>
@@ -194,7 +194,7 @@ function ChatPanel({
                 <Crown className="w-7 h-7 text-primary" />
               </div>
               <div>
-                <p className="text-lg font-semibold text-foreground">Chat with Admin</p>
+                <p className="text-lg font-semibold text-foreground">Chat with Rahul</p>
                 <p className="text-sm text-muted-foreground mt-1 max-w-xs">
                   Send a message and the admin will respond directly — 24/7 premium access.
                 </p>
@@ -240,7 +240,7 @@ function ChatPanel({
             </button>
           </div>
           <p className="text-center text-[11px] text-muted-foreground/40 mt-3">
-            Chat with Admin · Premium exclusive · 24/7
+            Chat with Rahul · Premium exclusive · 24/7
           </p>
         </div>
       </div>
@@ -284,7 +284,7 @@ function ChatPanel({
             <ShieldCheck className="w-4 h-4 text-white" />
           </div>
           <div className="relative flex-1 min-w-0">
-            <p className="text-white font-bold text-sm leading-tight">Chat with Admin</p>
+            <p className="text-white font-bold text-sm leading-tight">Chat with Rahul</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
               <p className="text-white/75 text-[11px]">Admin 24/7 · Premium exclusive</p>
@@ -328,7 +328,7 @@ function ChatPanel({
                 <Crown className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground">Chat with Admin</p>
+                <p className="text-sm font-semibold text-foreground">Chat with Rahul</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-[220px]">
                   Send a message and the admin will reply directly — available 24/7.
                 </p>
@@ -375,7 +375,7 @@ function ChatPanel({
 
         {/* Brand note */}
         <p className="text-center text-[10px] text-muted-foreground/50 pb-3 px-4">
-          Chat with Admin · 24/7 · Premium exclusive
+          Chat with Rahul · 24/7 · Premium exclusive
         </p>
       </div>
     </div>
@@ -421,7 +421,7 @@ export function SupportChatFAB() {
       {showTooltip && !isOpen && (
         <div className="hidden sm:block fixed bottom-[5.5rem] right-5 z-[202] pointer-events-none animate-in fade-in slide-in-from-right-2 duration-200">
           <div className="glass-card rounded-xl px-3 py-1.5 border border-primary/20 shadow-lg">
-            <p className="text-xs font-medium text-foreground whitespace-nowrap">Chat with Admin 24/7</p>
+            <p className="text-xs font-medium text-foreground whitespace-nowrap">Chat with Rahul 24/7</p>
           </div>
           <div className="absolute right-4 -bottom-1.5 w-3 h-3 rotate-45 glass-card border-r border-b border-border/20" />
         </div>
@@ -433,7 +433,7 @@ export function SupportChatFAB() {
         onClick={() => setIsOpen((prev) => !prev)}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        aria-label={isOpen ? "Close admin chat" : "Chat with Admin 24/7"}
+        aria-label={isOpen ? "Close admin chat" : "Chat with Rahul 24/7"}
         className={`
           fixed z-[202] w-14 h-14 rounded-full brand-gradient shadow-xl shadow-primary/30
           flex items-center justify-center

@@ -270,7 +270,7 @@ export function PremiumModal() {
   if (!isPremiumModalOpen) return null;
 
   const benefits = [
-    "Chat with Admin 24/7 — direct access, premium only",
+    "Chat with Rahul 24/7 — direct access, premium only",
     "Unlimited access to all 500+ premium videos",
     "Stunning cinematic 4K video resolution",
     "Zero buffering with premium edge delivery",
