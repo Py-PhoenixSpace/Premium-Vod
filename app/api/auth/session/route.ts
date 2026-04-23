@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest } from "next/server";
-import { adminAuth } from "@/lib/firebase-admin";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { cookies } from "next/headers";
 
 /**
@@ -35,6 +36,32 @@ export async function POST(request: NextRequest) {
       maxAge: expiresIn / 1000,
       path: "/",
     });
+
+    // Check if user exists in Firestore, if not, create
+    const userRef = adminDb.collection("users").doc(decodedToken.uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      await userRef.set({
+        uid: decodedToken.uid,
+        email: decodedToken.email || "",
+        displayName: decodedToken.name || "",
+        role: "user",
+        purchasedVideos: [],
+        subscription: {
+          status: "none",
+          currentPeriodEnd: null,
+          stripeCustomerId: "",
+          stripeSubscriptionId: "",
+        },
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      
+      const statsRef = adminDb.collection("platformStats").doc("totals");
+      statsRef.set(
+        { totalRegisteredUsers: FieldValue.increment(1) },
+        { merge: true }
+      ).catch((err) => console.error("Stats update failed:", err));
+    }
 
     return Response.json({
       success: true,

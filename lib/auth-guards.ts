@@ -1,4 +1,5 @@
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { cookies } from "next/headers";
 
 export type AuthResult =
@@ -26,13 +27,32 @@ async function verifySession(): Promise<AuthResult> {
       .collection("users")
       .doc(decodedClaims.uid)
       .get();
-    const userData = userDoc.data();
+    let userData = userDoc.data();
 
     if (!userData) {
-      return {
-        ok: false,
-        response: Response.json({ error: "User not found" }, { status: 401 }),
+      // Self-heal: Create user document if it doesn't exist (e.g. Google sign-in without registration)
+      userData = {
+        uid: decodedClaims.uid,
+        email: decodedClaims.email || "",
+        displayName: decodedClaims.name || "",
+        role: "user",
+        purchasedVideos: [],
+        subscription: {
+          status: "none",
+          currentPeriodEnd: null,
+          stripeCustomerId: "",
+          stripeSubscriptionId: "",
+        },
+        createdAt: FieldValue.serverTimestamp(),
       };
+      
+      await adminDb.collection("users").doc(decodedClaims.uid).set(userData);
+      
+      // Attempt to increment stats but ignore errors
+      adminDb.collection("platformStats").doc("totals").set(
+        { totalRegisteredUsers: FieldValue.increment(1) },
+        { merge: true }
+      ).catch(() => {});
     }
 
     return { ok: true, uid: decodedClaims.uid, role: userData.role || "user" };
