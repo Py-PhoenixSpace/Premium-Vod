@@ -57,8 +57,12 @@ export async function POST(request: NextRequest) {
       getPlanPrice(pricing, selectedPlan) ||
       getPlanPrice(DEFAULT_SUBSCRIPTION_PRICING, selectedPlan);
 
+    if (subscriptionPriceINR < 1) {
+      return Response.json({ error: "Invalid subscription price (minimum ₹1)" }, { status: 400 });
+    }
+
     const order = await razorpay.orders.create({
-      amount: subscriptionPriceINR * 100,
+      amount: Math.round(subscriptionPriceINR * 100),
       currency: "INR",
       receipt: `s_${auth.uid.slice(0, 20)}_${Date.now().toString(36)}`,
       notes: {

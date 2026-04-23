@@ -6,6 +6,7 @@ import type { NextRequest } from "next/server";
  *
  * Responsibilities:
  *  1. Redirect unauthenticated users away from protected routes → /login?redirect=<path>
+ *  2. Redirect authenticated users away from auth routes → /dashboard
  *
  * Security model:
  *  Cookie *presence* check only — Firebase Admin SDK (full token verification)
@@ -13,11 +14,11 @@ import type { NextRequest } from "next/server";
  *  via requireUser() / requireAdmin() in auth-guards.ts.
  *  This layer provides UX-level protection (no flash of protected content).
  *
- *  NOTE: We intentionally do NOT redirect authenticated users away from /login
- *  or /register here. The proxy can only check cookie *presence*, not validity.
- *  A stale or expired session cookie would cause false redirects to /dashboard
- *  for genuinely unauthenticated users. The client-side useEffect in each auth
- *  page handles that redirect accurately using the live Firebase auth state.
+ *  For auth routes (/login, /register): a stale/expired cookie would redirect a
+ *  genuinely unauthenticated user to /dashboard, where the protected-route guard
+ *  would immediately send them back to /login. Net effect: one extra round-trip,
+ *  no incorrect access. The client-side useEffect in each auth page also fires as
+ *  a secondary check using live Firebase auth state.
  *
  *  Fail-safe: any unexpected error allows the request through.
  */
@@ -29,6 +30,9 @@ const PROTECTED_PREFIXES = [
   "/admin",
   "/super-admin",
 ];
+
+/** Routes that logged-in users should not be able to visit */
+const AUTH_ONLY_PATHS = ["/login", "/register"];
 
 export function proxy(request: NextRequest) {
   try {
@@ -47,6 +51,13 @@ export function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
+    // ── Redirect authenticated users away from auth pages ─────────────────
+    const isAuthOnlyPage = AUTH_ONLY_PATHS.some((p) => pathname.startsWith(p));
+
+    if (isAuthOnlyPage && isAuthenticated) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+
     return NextResponse.next();
   } catch {
     // Fail-open — never block a request due to proxy error
@@ -61,5 +72,7 @@ export const config = {
     "/videos/:path*",
     "/admin/:path*",
     "/super-admin/:path*",
+    "/login",
+    "/register",
   ],
 };

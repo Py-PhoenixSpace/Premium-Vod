@@ -58,10 +58,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const txDoc = txSnapshot.docs[0];
+    const txData = txDoc.data();
+
+    // Prevent replay attacks
+    if (txData.status === "success") {
+      return Response.json({ error: "Order already verified" }, { status: 400 });
+    }
+
+    // Prevent cross-item purchase attacks (buying a cheap video but claiming an expensive one)
+    if (txData.videoId !== videoId) {
+      return Response.json({ error: "Video ID mismatch" }, { status: 400 });
+    }
+
     // Atomically add videoId to user's purchasedVideos
     const userRef = adminDb.collection("users").doc(auth.uid);
     await userRef.update({
-      purchasedVideos: FieldValue.arrayUnion(videoId),
+      purchasedVideos: FieldValue.arrayUnion(txData.videoId),
     });
 
     // Update transaction status

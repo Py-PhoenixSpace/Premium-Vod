@@ -701,6 +701,7 @@ export default function HomePage() {
                   "New content every week",
                   "Standard quality streaming",
                   "Community support",
+                  "Chat with Admin 24/7",
                 ].map((f, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm font-medium text-foreground/80">
                     <CheckCircle2 className="w-5 h-5 text-muted-foreground" />
@@ -742,6 +743,7 @@ export default function HomePage() {
                   "New drops every week",
                   "4K premium quality streaming",
                   "Advanced analytics & tracking",
+                  "Chat with Admin 24/7",
                   "Priority support",
                 ].map((f, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm font-bold text-foreground">
@@ -780,6 +782,7 @@ export default function HomePage() {
                   "New content every week",
                   "4K premium quality",
                   "Advanced analytics",
+                  "Chat with Admin 24/7",
                   "VIP priority support",
                 ].map((f, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm font-medium text-foreground/80">

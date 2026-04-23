@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { Button } from "@/components/ui/button";
-import { X, Crown, CheckCircle2, Loader2, Sparkles, CreditCard, Lock, IndianRupee } from "lucide-react";
+import { X, Crown, CheckCircle2, Loader2, Sparkles, CreditCard, Lock, IndianRupee, MessageCircle } from "lucide-react";
 import {
   DEFAULT_SUBSCRIPTION_PRICING,
   formatINR,
@@ -259,20 +259,24 @@ export function PremiumModal() {
       };
 
       const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", function (response: any) {
+        setCheckoutError(`Payment failed: ${response.error.description}`);
+        setLoading(false);
+      });
       rzp.open();
     } catch (error) {
       console.error("Razorpay checkout failed:", error);
       setCheckoutError(
         error instanceof Error ? error.message : "Razorpay checkout failed"
       );
-    } finally {
       setLoading(false);
     }
-  }, [closePremiumModal, selectedPlan]);
+  }, [closePremiumModal, selectedPlan, user]);
 
   if (!isPremiumModalOpen) return null;
 
   const benefits = [
+    "Chat with Admin 24/7 — direct access, premium only",
     "Unlimited access to all 500+ premium videos",
     "Stunning cinematic 4K video resolution",
     "Zero buffering with premium edge delivery",

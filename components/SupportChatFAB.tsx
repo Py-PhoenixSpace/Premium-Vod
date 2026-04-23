@@ -10,11 +10,11 @@ import {
   X,
   Send,
   Loader2,
-  Headphones,
   Crown,
   ChevronDown,
   Maximize2,
   Minimize2,
+  ShieldCheck,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ChatMessage, UserProfile } from "@/types";
@@ -27,7 +27,7 @@ function MessageBubble({ msg, fullscreen }: { msg: ChatMessage; fullscreen: bool
     <div className={`flex ${isAdmin ? "justify-start" : "justify-end"} mb-3`}>
       {isAdmin && (
         <div className="w-6 h-6 rounded-full brand-gradient flex items-center justify-center shrink-0 mr-2 mt-auto mb-0.5">
-          <Headphones className="w-3 h-3 text-white" />
+          <ShieldCheck className="w-3 h-3 text-white" />
         </div>
       )}
       <div
@@ -143,7 +143,7 @@ function ChatPanel({
       <div
         className="fixed inset-0 z-[300] flex flex-col bg-background animate-in fade-in duration-200"
         role="dialog"
-        aria-label="Support chat fullscreen"
+        aria-label="Chat with Admin fullscreen"
       >
         {/* Ambient background */}
         <div className="absolute inset-0 mesh-bg opacity-30 pointer-events-none" />
@@ -152,13 +152,13 @@ function ChatPanel({
         <div className="relative flex items-center gap-3 px-4 sm:px-6 py-4 brand-gradient shrink-0 overflow-hidden">
           <div className="absolute inset-0 shimmer opacity-20 pointer-events-none" />
           <div className="relative w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-            <Headphones className="w-5 h-5 text-white" />
+            <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           <div className="relative flex-1 min-w-0">
-            <p className="text-white font-bold text-base leading-tight">Premium Support</p>
+            <p className="text-white font-bold text-base leading-tight">Chat with Admin</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
-              <p className="text-white/75 text-xs">Typically online · End‑to‑end encrypted</p>
+              <p className="text-white/75 text-xs">Admin online 24/7 · Premium exclusive</p>
             </div>
           </div>
           <div className="relative flex items-center gap-1">
@@ -194,9 +194,9 @@ function ChatPanel({
                 <Crown className="w-7 h-7 text-primary" />
               </div>
               <div>
-                <p className="text-lg font-semibold text-foreground">Premium Support</p>
+                <p className="text-lg font-semibold text-foreground">Chat with Admin</p>
                 <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-                  Send a message and our team will get back to you as soon as possible.
+                  Send a message and the admin will respond directly — 24/7 premium access.
                 </p>
               </div>
             </div>
@@ -220,7 +220,7 @@ function ChatPanel({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message support team…"
+              placeholder="Message the admin…"
               maxLength={500}
               disabled={sending}
               className="flex-1 min-w-0 bg-muted/40 border border-border/40 rounded-xl px-4 py-3 text-base placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all disabled:opacity-50"
@@ -240,7 +240,7 @@ function ChatPanel({
             </button>
           </div>
           <p className="text-center text-[11px] text-muted-foreground/40 mt-3">
-            Premium exclusive · End‑to‑end encrypted
+            Chat with Admin · Premium exclusive · 24/7
           </p>
         </div>
       </div>
@@ -281,13 +281,13 @@ function ChatPanel({
           <div className="absolute inset-0 shimmer opacity-30 pointer-events-none" />
 
           <div className="relative w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-            <Headphones className="w-4 h-4 text-white" />
+            <ShieldCheck className="w-4 h-4 text-white" />
           </div>
           <div className="relative flex-1 min-w-0">
-            <p className="text-white font-bold text-sm leading-tight">Support Chat</p>
+            <p className="text-white font-bold text-sm leading-tight">Chat with Admin</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
-              <p className="text-white/75 text-[11px]">Premium support · Typically online</p>
+              <p className="text-white/75 text-[11px]">Admin 24/7 · Premium exclusive</p>
             </div>
           </div>
 
@@ -328,9 +328,9 @@ function ChatPanel({
                 <Crown className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground">Premium Support</p>
+                <p className="text-sm font-semibold text-foreground">Chat with Admin</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-[220px]">
-                  Send a message and our team will get back to you as soon as possible.
+                  Send a message and the admin will reply directly — available 24/7.
                 </p>
               </div>
             </div>
@@ -353,7 +353,7 @@ function ChatPanel({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message support team…"
+            placeholder="Message the admin…"
             maxLength={500}
             disabled={sending}
             className="flex-1 min-w-0 bg-muted/40 border border-border/40 rounded-xl px-3.5 py-2.5 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all disabled:opacity-50"
@@ -375,7 +375,7 @@ function ChatPanel({
 
         {/* Brand note */}
         <p className="text-center text-[10px] text-muted-foreground/50 pb-3 px-4">
-          Premium exclusive · End‑to‑end encrypted
+          Chat with Admin · 24/7 · Premium exclusive
         </p>
       </div>
     </div>
@@ -421,7 +421,7 @@ export function SupportChatFAB() {
       {showTooltip && !isOpen && (
         <div className="hidden sm:block fixed bottom-[5.5rem] right-5 z-[202] pointer-events-none animate-in fade-in slide-in-from-right-2 duration-200">
           <div className="glass-card rounded-xl px-3 py-1.5 border border-primary/20 shadow-lg">
-            <p className="text-xs font-medium text-foreground whitespace-nowrap">Premium Support</p>
+            <p className="text-xs font-medium text-foreground whitespace-nowrap">Chat with Admin 24/7</p>
           </div>
           <div className="absolute right-4 -bottom-1.5 w-3 h-3 rotate-45 glass-card border-r border-b border-border/20" />
         </div>
@@ -433,7 +433,7 @@ export function SupportChatFAB() {
         onClick={() => setIsOpen((prev) => !prev)}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        aria-label={isOpen ? "Close support chat" : "Open premium support chat"}
+        aria-label={isOpen ? "Close admin chat" : "Chat with Admin 24/7"}
         className={`
           fixed z-[202] w-14 h-14 rounded-full brand-gradient shadow-xl shadow-primary/30
           flex items-center justify-center

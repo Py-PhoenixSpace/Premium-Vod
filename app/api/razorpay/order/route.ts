@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "This is a free video" }, { status: 400 });
     }
 
-    if (typeof video.priceINR !== "number" || video.priceINR <= 0) {
-      return Response.json({ error: "Invalid video price" }, { status: 400 });
+    if (typeof video.priceINR !== "number" || video.priceINR < 1) {
+      return Response.json({ error: "Invalid video price (minimum ₹1)" }, { status: 400 });
     }
 
     // Receipt must be ≤ 40 chars (Razorpay limit)
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     const receipt = `${shortUid}_${shortVid}_${ts}`.slice(0, 40);
 
     const order = await razorpay.orders.create({
-      amount: video.priceINR * 100,
+      amount: Math.round(video.priceINR * 100),
       currency: "INR",
       receipt,
       notes: { userId: auth.uid, videoId },

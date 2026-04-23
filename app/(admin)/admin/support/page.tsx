@@ -15,7 +15,7 @@ import { useSupportChat } from "@/lib/hooks/useSupportChat";
 import type { SupportChat, ChatMessage, UserProfile } from "@/types";
 import {
   MessageCircle,
-  Headphones,
+  ShieldCheck,
   Send,
   Loader2,
   Users,
@@ -49,7 +49,7 @@ function AdminMessageBubble({ msg }: { msg: ChatMessage }) {
       </div>
       {isAdmin && (
         <div className="w-6 h-6 rounded-full brand-gradient flex items-center justify-center shrink-0 ml-2 mt-auto mb-0.5">
-          <Headphones className="w-3 h-3 text-white" />
+          <ShieldCheck className="w-3 h-3 text-white" />
         </div>
       )}
     </div>
@@ -75,7 +75,7 @@ function ConversationPanel({
     userName: chat.userName,
     userEmail: chat.userEmail,
     senderId: "admin",
-    senderName: adminUser.displayName || "Support",
+    senderName: adminUser.displayName || "Admin",
   });
 
   // Mark conversation as read when opened
@@ -250,14 +250,14 @@ export default function AdminSupportPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <div className="w-8 h-8 rounded-xl brand-gradient flex items-center justify-center shadow-md shadow-primary/25">
-              <Headphones className="w-4 h-4 text-white" />
+              <ShieldCheck className="w-4 h-4 text-white" />
             </div>
             <h1 className="text-2xl font-bold font-heading">
-              Support <span className="brand-gradient-text">Inbox</span>
+              Chat with Admin <span className="brand-gradient-text">Inbox</span>
             </h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Real-time conversations with premium subscribers.
+            Direct chats from premium subscribers — reply in real-time.
           </p>
         </div>
         {unreadCount > 0 && (
@@ -301,7 +301,7 @@ export default function AdminSupportPage() {
                 <div>
                   <p className="text-sm font-medium text-foreground">No conversations yet</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Premium users can message you from the chat button on any page.
+                    Premium users can message you directly using the Chat with Admin button.
                   </p>
                 </div>
               </div>

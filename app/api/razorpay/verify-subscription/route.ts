@@ -62,6 +62,11 @@ export async function POST(request: NextRequest) {
     const txDoc = txSnapshot.docs[0];
     const txData = txDoc.data();
 
+    // Prevent replay attacks
+    if (txData.status === "success") {
+      return Response.json({ error: "Order already verified" }, { status: 400 });
+    }
+
     // Read actual amount paid from the transaction record (not hardcoded)
     const amountPaid: number = txData.amount ?? 0;
 
