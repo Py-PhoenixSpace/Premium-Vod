@@ -147,6 +147,12 @@ export async function getBucketUsage(bucket: BucketConfig) {
     const percent =
       limitGB > 0 ? Number(((usedGB / limitGB) * 100).toFixed(1)) : 0;
 
+    const resolvedPlan = usage?.plan || "Free";
+    const plan =
+      bucket.cloudName === "dcoovig2r" && resolvedPlan === "Free"
+        ? "Already Paid"
+        : resolvedPlan;
+
     return {
       id: bucket.id,
       label: bucket.label,
@@ -154,7 +160,7 @@ export async function getBucketUsage(bucket: BucketConfig) {
       usedGB,
       limitGB,
       percent,
-      plan: usage?.plan || "Free",
+      plan,
     };
   } catch (error) {
     console.error(`Failed to fetch usage for ${bucket.label}:`, error);
