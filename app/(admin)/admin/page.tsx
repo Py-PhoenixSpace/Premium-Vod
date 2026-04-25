@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { doc, getDoc, collection, query, orderBy, limit, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ import {
   RefreshCw,
   Info,
   Save,
+  ImageIcon,
+  Upload,
 } from "lucide-react";
 import {
   AreaChart,
@@ -125,6 +127,14 @@ export default function AdminDashboardPage() {
     version: 0,
   });
 
+  // Dashboard UI
+  const [dashboardImageUrl, setDashboardImageUrl] = useState<string | null>(null);
+  const [dashboardImageFile, setDashboardImageFile] = useState<File | null>(null);
+  const [uiLoading, setUiLoading] = useState(true);
+  const [uiSaving, setUiSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     async function fetchData() {
       try {
@@ -199,6 +209,127 @@ export default function AdminDashboardPage() {
 
     loadSocialLinks();
   }, []);
+
+  useEffect(() => {
+    async function loadDashboardUI() {
+      setUiLoading(true);
+      try {
+        const res = await fetch("/api/admin/dashboard-ui", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          setDashboardImageUrl(data.imageUrl || null);
+        }
+      } catch (error) {
+        console.error("Failed to load dashboard UI settings:", error);
+      } finally {
+        setUiLoading(false);
+      }
+    }
+    loadDashboardUI();
+  }, []);
+
+  function handleDashboardImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setDashboardImageFile(file);
+    }
+  }
+
+  async function handleSaveDashboardUI() {
+    if (!dashboardImageFile && !dashboardImageUrl) return;
+    setUiSaving(true);
+    setUploadProgress(0);
+
+    try {
+      let finalUrl = dashboardImageUrl;
+
+      if (dashboardImageFile) {
+        // Upload to Cloudinary
+        const signRes = await fetch("/api/video/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mediaType: "image", storageBucket: "default" }),
+        });
+        
+        if (!signRes.ok) throw new Error("Failed to get upload signature");
+        const signData = await signRes.json();
+
+        const formData = new FormData();
+        formData.append("file", dashboardImageFile);
+        formData.append("api_key", signData.apiKey);
+        formData.append("timestamp", signData.timestamp.toString());
+        formData.append("signature", signData.signature);
+        formData.append("folder", signData.folder);
+        formData.append("public_id", signData.publicId);
+        formData.append("overwrite", "false");
+        formData.append("invalidate", "false");
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `https://api.cloudinary.com/v1_1/${signData.cloudName}/image/upload`);
+        
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+
+        const cloudinaryResponse: any = await new Promise((resolve, reject) => {
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(JSON.parse(xhr.responseText));
+            } else {
+              reject(new Error("Upload failed"));
+            }
+          };
+          xhr.onerror = () => reject(new Error("Network error during upload"));
+          xhr.send(formData);
+        });
+
+        finalUrl = cloudinaryResponse.secure_url;
+      }
+
+      // Save URL to Firestore via our new API
+      const saveRes = await fetch("/api/admin/dashboard-ui", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl: finalUrl }),
+      });
+
+      if (!saveRes.ok) throw new Error("Failed to save UI settings");
+
+      setDashboardImageUrl(finalUrl);
+      setDashboardImageFile(null);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      toast.success("Dashboard UI updated successfully");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to update Dashboard UI"));
+    } finally {
+      setUiSaving(false);
+      setUploadProgress(0);
+    }
+  }
+
+  async function handleRemoveDashboardImage() {
+    setDashboardImageUrl(null);
+    setDashboardImageFile(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+    
+    // Auto-save the removal
+    setUiSaving(true);
+    try {
+      const saveRes = await fetch("/api/admin/dashboard-ui", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl: null }),
+      });
+      if (!saveRes.ok) throw new Error("Failed to save UI settings");
+      toast.success("Dashboard Image removed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to remove Dashboard Image"));
+    } finally {
+      setUiSaving(false);
+    }
+  }
 
   function handleSocialLinkChange(key: keyof SocialLinks, value: string) {
     setSocialLinks((prev) => ({ ...prev, [key]: value }));
@@ -419,6 +550,134 @@ export default function AdminDashboardPage() {
               </Button>
             </div>
           </form>
+        )}
+      </div>
+
+      {/* Dashboard UI Settings */}
+      <div className="glass-card rounded-2xl p-5 sm:p-6 border border-border/40">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-bold">Dashboard UI Settings</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Upload an image to display on the user dashboard screen.
+            </p>
+          </div>
+        </div>
+
+        {uiLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            Loading dashboard UI settings...
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-6 items-start">
+              {/* Preview */}
+              <div className="shrink-0">
+                <p className="text-sm font-medium mb-3">Current Image</p>
+                {dashboardImageFile ? (
+                  <div className="w-32 h-32 rounded-2xl border border-border/40 overflow-hidden relative group">
+                    <img
+                      src={URL.createObjectURL(dashboardImageFile)}
+                      alt="Preview"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="text-xs font-semibold text-white">Pending Save</span>
+                    </div>
+                  </div>
+                ) : dashboardImageUrl ? (
+                  <div className="w-32 h-32 rounded-2xl border border-border/40 overflow-hidden">
+                    <img
+                      src={dashboardImageUrl}
+                      alt="Dashboard"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-32 h-32 rounded-2xl border border-dashed border-border/40 bg-muted/20 flex flex-col items-center justify-center text-muted-foreground">
+                    <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
+                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-70">No Image</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Controls */}
+              <div className="flex-1 space-y-4 w-full">
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">Upload New Image</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={uiSaving}
+                      className="gap-2"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Select Image
+                    </Button>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleDashboardImageChange}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Recommended: Square image (1:1 ratio), up to 2MB.
+                  </p>
+                </div>
+
+                {uploadProgress > 0 && uploadProgress < 100 && (
+                  <div className="space-y-1.5 max-w-xs">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Uploading...</span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden">
+                      <div className="h-full brand-gradient rounded-full" style={{ width: `${uploadProgress}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Button
+                    onClick={handleSaveDashboardUI}
+                    disabled={uiSaving || !dashboardImageFile}
+                    className="gap-2 brand-gradient text-white shadow-lg shadow-primary/20"
+                  >
+                    {uiSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Save Image
+                  </Button>
+                  
+                  {dashboardImageUrl && (
+                    <Button
+                      variant="destructive"
+                      onClick={handleRemoveDashboardImage}
+                      disabled={uiSaving}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                  
+                  {dashboardImageFile && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setDashboardImageFile(null);
+                        if (imageInputRef.current) imageInputRef.current.value = "";
+                      }}
+                      disabled={uiSaving}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 

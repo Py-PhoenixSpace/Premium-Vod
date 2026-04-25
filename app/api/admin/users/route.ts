@@ -80,12 +80,9 @@ export async function GET(request: NextRequest) {
     const hasMore = snapshot.docs.length > pageSize;
     const docs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
 
-    // Get total count (cached via platformStats for performance)
-    const statsDoc = await adminDb
-      .collection("platformStats")
-      .doc("totals")
-      .get();
-    const total = statsDoc.data()?.totalRegisteredUsers ?? docs.length;
+    // Get accurate total count directly from the users collection
+    const countSnap = await usersRef.select().get();
+    const total = countSnap.size;
 
     const users = docs
       .map((d) => {

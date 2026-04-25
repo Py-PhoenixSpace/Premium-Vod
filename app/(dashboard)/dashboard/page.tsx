@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("browse");
   const [videos, setVideos] = useState<VideoWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dashboardImageUrl, setDashboardImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchVideos() {
@@ -107,6 +108,20 @@ export default function DashboardPage() {
     fetchVideos();
   }, [activeTab, user]);
 
+  useEffect(() => {
+    async function fetchDashboardUI() {
+      try {
+        const uiDoc = await getDoc(doc(db, "platformStats", "dashboardUI"));
+        if (uiDoc.exists()) {
+          setDashboardImageUrl(uiDoc.data().imageUrl || null);
+        }
+      } catch (error) {
+        console.error("Failed to fetch dashboard UI:", error);
+      }
+    }
+    fetchDashboardUI();
+  }, []);
+
   const tabs: { key: TabKey; label: string; icon: React.ElementType; description: string }[] = [
     { key: "browse",    label: "Latest",     icon: TrendingUp, description: "Newest media" },
     { key: "continue",  label: "Continue",   icon: History,    description: "Pick up where you left off" },
@@ -164,22 +179,23 @@ export default function DashboardPage() {
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
 
             {/* Left: greeting */}
-            <div className="flex-1">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs font-bold uppercase tracking-widest text-primary mb-4">
-                <Flame className="w-3 h-3" />
-                {greeting}
-              </div>
-              <h1 className="text-4xl md:text-5xl font-bold font-[family-name:var(--font-heading)] tracking-tight">
-                {user?.displayName
-                  ? <><span className="pr-1 brand-gradient-text">{user.displayName.split(" ")[0]}</span>,<br />let's train.</>
-                  : <>Your <span className="brand-gradient-text">Premium Media</span> Hub</>
-                }
-              </h1>
-              <p className="text-muted-foreground mt-3 max-w-md leading-relaxed">
-                Pick up where you left off, discover new content, or unlock premium access.
-              </p>
+            <div className="flex-1 flex justify-between items-start gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs font-bold uppercase tracking-widest text-primary mb-4">
+                  <Flame className="w-3 h-3" />
+                  {greeting}
+                </div>
+                <h1 className="text-4xl md:text-5xl font-bold font-[family-name:var(--font-heading)] tracking-tight">
+                  {user?.displayName
+                    ? <><span className="pr-1 brand-gradient-text">{user.displayName.split(" ")[0]}</span>,<br />let's train.</>
+                    : <>Your <span className="brand-gradient-text">Premium Media</span> Hub</>
+                  }
+                </h1>
+                <p className="text-muted-foreground mt-3 max-w-md leading-relaxed">
+                  Pick up where you left off, discover new content, or unlock premium access.
+                </p>
 
-              {/* CTA row */}
+                {/* CTA row */}
               <div className="flex items-center gap-3 mt-6">
                 <Button asChild className="brand-gradient text-white font-semibold shadow-lg shadow-primary/20 gap-2 h-11 px-5">
                   <Link href="/videos">
@@ -200,7 +216,29 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-
+            
+            {/* Dashboard Image Display */}
+            {dashboardImageUrl && (
+              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden shrink-0 border border-border/20 shadow-lg shadow-primary/5 mt-2 lg:mt-0 lg:ml-8 hidden sm:block">
+                <img 
+                  src={dashboardImageUrl} 
+                  alt="Dashboard" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            
+            {dashboardImageUrl && (
+              <div className="absolute right-4 top-12 w-20 h-20 rounded-full overflow-hidden shrink-0 border border-border/20 shadow-lg shadow-primary/5 sm:hidden z-10">
+                <img 
+                  src={dashboardImageUrl} 
+                  alt="Dashboard" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            </div>
+            
             {/* Right: stat cards */}
             <div className="flex gap-3 lg:gap-4 flex-shrink-0">
               {statCards.map((s) => (
