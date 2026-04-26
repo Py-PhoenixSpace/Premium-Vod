@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   DEFAULT_SUBSCRIPTION_PRICING,
   formatINR,
+  formatUSD,
   monthlyRate,
   savingsPercent,
   subscriptionPricingSchema,
@@ -36,6 +37,9 @@ function toForm(pricing: SubscriptionPricing): PricingForm {
     monthly: String(pricing.monthly),
     quarterly: String(pricing.quarterly),
     halfYearly: String(pricing.halfYearly),
+    monthlyUSD: String(pricing.monthlyUSD ?? DEFAULT_SUBSCRIPTION_PRICING.monthlyUSD),
+    quarterlyUSD: String(pricing.quarterlyUSD ?? DEFAULT_SUBSCRIPTION_PRICING.quarterlyUSD),
+    halfYearlyUSD: String(pricing.halfYearlyUSD ?? DEFAULT_SUBSCRIPTION_PRICING.halfYearlyUSD),
   };
 }
 
@@ -44,6 +48,9 @@ function parseForm(form: PricingForm) {
     monthly: form.monthly,
     quarterly: form.quarterly,
     halfYearly: form.halfYearly,
+    monthlyUSD: form.monthlyUSD,
+    quarterlyUSD: form.quarterlyUSD,
+    halfYearlyUSD: form.halfYearlyUSD,
   });
 }
 
@@ -70,6 +77,9 @@ export default function AdminPricingPage() {
         monthly: Number(form.monthly) || 0,
         quarterly: Number(form.quarterly) || 0,
         halfYearly: Number(form.halfYearly) || 0,
+        monthlyUSD: Number(form.monthlyUSD) || 0,
+        quarterlyUSD: Number(form.quarterlyUSD) || 0,
+        halfYearlyUSD: Number(form.halfYearlyUSD) || 0,
       };
 
   const loadPricing = useCallback(async () => {
@@ -160,6 +170,11 @@ export default function AdminPricingPage() {
   const saveQuarterly = savingsPercent(preview.monthly, preview.quarterly, 3);
   const saveHalfYearly = savingsPercent(preview.monthly, preview.halfYearly, 6);
 
+  const monthlyRateQuarterlyUSD = monthlyRate(preview.quarterlyUSD, 3);
+  const monthlyRateHalfYearlyUSD = monthlyRate(preview.halfYearlyUSD, 6);
+  const saveQuarterlyUSD = savingsPercent(preview.monthlyUSD, preview.quarterlyUSD, 3);
+  const saveHalfYearlyUSD = savingsPercent(preview.monthlyUSD, preview.halfYearlyUSD, 6);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -233,6 +248,42 @@ export default function AdminPricingPage() {
               className="h-11"
             />
           </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="monthlyPriceUSD">1 Month Price (USD)</Label>
+            <Input
+              id="monthlyPriceUSD"
+              value={form.monthlyUSD}
+              onChange={(e) => handleInputChange("monthlyUSD", e.target.value)}
+              inputMode="numeric"
+              placeholder="10"
+              className="h-11"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="quarterlyPriceUSD">3 Months Price (USD)</Label>
+            <Input
+              id="quarterlyPriceUSD"
+              value={form.quarterlyUSD}
+              onChange={(e) => handleInputChange("quarterlyUSD", e.target.value)}
+              inputMode="numeric"
+              placeholder="25"
+              className="h-11"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="halfYearlyPriceUSD">6 Months Price (USD)</Label>
+            <Input
+              id="halfYearlyPriceUSD"
+              value={form.halfYearlyUSD}
+              onChange={(e) => handleInputChange("halfYearlyUSD", e.target.value)}
+              inputMode="numeric"
+              placeholder="45"
+              className="h-11"
+            />
+          </div>
         </div>
 
         {validationMessage && (
@@ -242,22 +293,29 @@ export default function AdminPricingPage() {
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-xl border border-border/30 bg-muted/20 p-4">
             <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">1 Month</p>
-            <p className="text-2xl font-bold mt-2">₹{formatINR(preview.monthly)}</p>
-            <p className="text-xs text-muted-foreground mt-1">₹{formatINR(preview.monthly)} / month</p>
+            <p className="text-2xl font-bold mt-2">
+              ₹{formatINR(preview.monthly)} <span className="text-sm text-muted-foreground font-normal ml-1">/ ${formatUSD(preview.monthlyUSD)}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">₹{formatINR(preview.monthly)}/mo (INR)</p>
+            <p className="text-xs text-muted-foreground">USD ${formatUSD(preview.monthlyUSD)}/mo</p>
           </div>
 
           <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
             <p className="text-[11px] font-bold uppercase tracking-wider text-primary">3 Months</p>
-            <p className="text-2xl font-bold mt-2">₹{formatINR(preview.quarterly)}</p>
-            <p className="text-xs text-muted-foreground mt-1">₹{formatINR(monthlyRateQuarterly)} / month</p>
-            <p className="text-xs text-primary mt-1">Save {saveQuarterly}%</p>
+            <p className="text-2xl font-bold mt-2">
+              ₹{formatINR(preview.quarterly)} <span className="text-sm text-muted-foreground font-normal ml-1">/ ${formatUSD(preview.quarterlyUSD)}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">₹{formatINR(monthlyRateQuarterly)}/mo (Save {saveQuarterly}%)</p>
+            <p className="text-xs text-primary">USD ${formatUSD(monthlyRateQuarterlyUSD)}/mo (Save {saveQuarterlyUSD}%)</p>
           </div>
 
           <div className="rounded-xl border border-accent/30 bg-accent/5 p-4">
             <p className="text-[11px] font-bold uppercase tracking-wider text-accent">6 Months</p>
-            <p className="text-2xl font-bold mt-2">₹{formatINR(preview.halfYearly)}</p>
-            <p className="text-xs text-muted-foreground mt-1">₹{formatINR(monthlyRateHalfYearly)} / month</p>
-            <p className="text-xs text-accent mt-1">Save {saveHalfYearly}%</p>
+            <p className="text-2xl font-bold mt-2">
+              ₹{formatINR(preview.halfYearly)} <span className="text-sm text-muted-foreground font-normal ml-1">/ ${formatUSD(preview.halfYearlyUSD)}</span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">₹{formatINR(monthlyRateHalfYearly)}/mo (Save {saveHalfYearly}%)</p>
+            <p className="text-xs text-accent">USD ${formatUSD(monthlyRateHalfYearlyUSD)}/mo (Save {saveHalfYearlyUSD}%)</p>
           </div>
         </div>
 

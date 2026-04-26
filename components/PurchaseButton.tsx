@@ -5,10 +5,13 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { Loader2, ShoppingCart, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { detectIsIndianUser } from "@/lib/utils";
+import { formatINR, formatUSD } from "@/lib/subscription-pricing";
 
 interface PurchaseButtonProps {
   videoId: string;
   priceINR: number;
+  priceUSD: number;
   videoTitle: string;
   onPurchaseComplete?: () => void;
 }
@@ -16,12 +19,17 @@ interface PurchaseButtonProps {
 export default function PurchaseButton({
   videoId,
   priceINR,
+  priceUSD,
   videoTitle,
   onPurchaseComplete,
 }: PurchaseButtonProps) {
   const { user, addPurchasedVideo } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isIndian = detectIsIndianUser();
+  const currency = isIndian ? "INR" : "USD";
+  const displayPrice = isIndian ? `₹${formatINR(priceINR)}` : `$${formatUSD(priceUSD)}`;
 
   async function handlePurchase() {
     if (!user) return;
@@ -33,7 +41,7 @@ export default function PurchaseButton({
       const res = await fetch("/api/razorpay/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoId }),
+        body: JSON.stringify({ videoId, currency }),
       });
 
       if (!res.ok) {
@@ -41,7 +49,7 @@ export default function PurchaseButton({
         throw new Error(data.error || "Failed to create order");
       }
 
-      const { orderId, keyId } = await res.json();
+      const { orderId, keyId, amount: orderAmount, currency: orderCurrency } = await res.json();
 
       // Load Razorpay script dynamically if not already loaded
       if (!window.Razorpay) {
@@ -57,8 +65,8 @@ export default function PurchaseButton({
 
       const options = {
         key: keyId,
-        amount: priceINR * 100,
-        currency: "INR",
+        amount: orderAmount,
+        currency: orderCurrency,
         name: "PremiumVOD",
         description: videoTitle,
         order_id: orderId,
@@ -131,7 +139,7 @@ export default function PurchaseButton({
         ) : (
           <>
             <ShoppingCart className="w-4 h-4" />
-            Buy for ₹{priceINR}
+            Buy for {displayPrice}
           </>
         )}
       </Button>

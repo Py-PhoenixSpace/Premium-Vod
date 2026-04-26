@@ -12,13 +12,13 @@ const razorpay = new Razorpay({
 
 /**
  * POST /api/razorpay/order
- * Creates a Razorpay order for a single video purchase (INR).
+ * Creates a Razorpay order for a single video purchase.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
 
-  let body: { videoId?: string };
+  let body: { videoId?: string; currency?: string };
   try {
     body = await request.json();
   } catch {
@@ -26,6 +26,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { videoId } = body;
+  const currency = body.currency === "USD" ? "USD" : "INR";
+
   if (!videoId || typeof videoId !== "string") {
     return Response.json({ error: "videoId is required" }, { status: 400 });
   }
@@ -45,12 +47,14 @@ export async function POST(request: NextRequest) {
     }
 
     const video = videoDoc.data()!;
-    if (video.priceINR === 0) {
-      return Response.json({ error: "This is a free video" }, { status: 400 });
+    const videoPrice = currency === "USD" ? (video.priceUSD || 0) : (video.priceINR || 0);
+
+    if (videoPrice === 0) {
+      return Response.json({ error: "This is a free video or price is not set" }, { status: 400 });
     }
 
-    if (typeof video.priceINR !== "number" || video.priceINR < 1) {
-      return Response.json({ error: "Invalid video price (minimum ₹1)" }, { status: 400 });
+    if (typeof videoPrice !== "number" || videoPrice < 1) {
+      return Response.json({ error: "Invalid video price (minimum 1)" }, { status: 400 });
     }
 
     // Receipt must be ≤ 40 chars (Razorpay limit)
@@ -60,8 +64,8 @@ export async function POST(request: NextRequest) {
     const receipt = `${shortUid}_${shortVid}_${ts}`.slice(0, 40);
 
     const order = await razorpay.orders.create({
-      amount: Math.round(video.priceINR * 100),
-      currency: "INR",
+      amount: Math.round(videoPrice * 100),
+      currency: currency,
       receipt,
       notes: { userId: auth.uid, videoId },
     });
@@ -69,8 +73,8 @@ export async function POST(request: NextRequest) {
     // Create pending transaction
     await adminDb.collection("transactions").add({
       userId: auth.uid,
-      amount: video.priceINR,
-      currency: "INR",
+      amount: videoPrice,
+      currency: currency,
       gateway: "razorpay",
       type: "single_purchase",
       status: "pending",
@@ -81,8 +85,8 @@ export async function POST(request: NextRequest) {
 
     return Response.json({
       orderId: order.id,
-      amount: video.priceINR * 100,
-      currency: "INR",
+      amount: videoPrice * 100,
+      currency: currency,
       keyId: process.env.RAZORPAY_KEY_ID,
       videoTitle: video.title,
     });

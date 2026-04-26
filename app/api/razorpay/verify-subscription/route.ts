@@ -103,9 +103,10 @@ export async function POST(request: NextRequest) {
 
     // Increment platform stats using actual amount paid (not hardcoded)
     const statsRef = adminDb.collection("platformStats").doc("totals");
+    const statField = txData.currency === "USD" ? "totalRevenueUSD" : "totalRevenueINR";
     await statsRef.set(
       {
-        totalRevenueINR: FieldValue.increment(amountPaid),
+        [statField]: FieldValue.increment(amountPaid),
         activePremiumSubscribers: FieldValue.increment(1),
       },
       { merge: true }

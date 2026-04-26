@@ -21,6 +21,8 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import Link from "next/link";
+import { detectIsIndianUser } from "@/lib/utils";
+import { formatINR, formatUSD } from "@/lib/subscription-pricing";
 
 const categoryLabels: Record<string, string> = {
   featured: "Featured Content",
@@ -90,6 +92,8 @@ export default function WatchPage() {
 
   const durationMins = Math.floor(video.durationInSeconds / 60);
   const mediaType = video.mediaType === "image" ? "image" : "video";
+  const isIndian = detectIsIndianUser();
+  const displayPrice = video.priceINR === 0 ? "Free" : (isIndian ? `₹${formatINR(video.priceINR)}` : `$${formatUSD(video.priceUSD || 0)}`);
 
   return (
     <main className="min-h-screen">
@@ -177,6 +181,7 @@ export default function WatchPage() {
                       <PurchaseButton
                         videoId={videoId}
                         priceINR={video.priceINR}
+                        priceUSD={video.priceUSD || 0}
                         videoTitle={video.title}
                         onPurchaseComplete={() => setHasAccess(true)}
                       />
@@ -210,7 +215,7 @@ export default function WatchPage() {
                     },
                     {
                       label: "Price",
-                      value: video.priceINR === 0 ? "Free" : `₹${video.priceINR}`,
+                      value: displayPrice,
                     },
                   ].map((item) => (
                     <div key={item.label} className="flex justify-between py-1.5 border-b border-border/10 last:border-0">

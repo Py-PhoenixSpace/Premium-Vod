@@ -7,9 +7,12 @@ export interface SubscriptionPricing {
   monthly: number;
   quarterly: number;
   halfYearly: number;
+  monthlyUSD: number;
+  quarterlyUSD: number;
+  halfYearlyUSD: number;
 }
 
-export type SubscriptionPlanKey = keyof SubscriptionPricing;
+export type SubscriptionPlanKey = "monthly" | "quarterly" | "halfYearly";
 
 export const SUBSCRIPTION_PLAN_META: Record<
   SubscriptionPlanKey,
@@ -20,10 +23,21 @@ export const SUBSCRIPTION_PLAN_META: Record<
   halfYearly: { title: "6 Months", months: 6 },
 };
 
+/** Approximate INR → USD conversion rate used for auto-deriving USD prices. */
+const INR_TO_USD_RATE = 84;
+
+/** Round an INR amount to a clean USD price (nearest whole dollar, minimum $1). */
+function inrToUsd(inr: number): number {
+  return Math.max(1, Math.round(inr / INR_TO_USD_RATE));
+}
+
 export const DEFAULT_SUBSCRIPTION_PRICING: SubscriptionPricing = {
   monthly: 799,
   quarterly: 2159,
   halfYearly: 3839,
+  monthlyUSD: inrToUsd(799),     // ~$10
+  quarterlyUSD: inrToUsd(2159),  // ~$26
+  halfYearlyUSD: inrToUsd(3839), // ~$46
 };
 
 const priceNumber = z.preprocess(
@@ -42,11 +56,31 @@ const priceNumber = z.preprocess(
     .max(1000000, "Prices are too large")
 );
 
+const usdPriceNumber = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return 0;
+      return Number(trimmed);
+    }
+    return value;
+  },
+  z
+    .number({ message: "Price is required" })
+    .int("Prices must be whole numbers")
+    .min(0, "Prices must be at least 0")
+    .max(100000, "Prices are too large")
+);
+
 export const subscriptionPricingSchema = z
   .object({
     monthly: priceNumber,
     quarterly: priceNumber,
     halfYearly: priceNumber,
+    monthlyUSD: usdPriceNumber.catch(10),
+    quarterlyUSD: usdPriceNumber.catch(25),
+    halfYearlyUSD: usdPriceNumber.catch(45),
   })
   .superRefine((value, ctx) => {
     if (!(value.monthly < value.quarterly && value.quarterly < value.halfYearly)) {
@@ -80,8 +114,17 @@ export const subscriptionPricingSchema = z
 
 export function normalizeSubscriptionPricing(input: unknown): SubscriptionPricing {
   const parsed = subscriptionPricingSchema.safeParse(input);
-  if (parsed.success) return parsed.data;
-  return DEFAULT_SUBSCRIPTION_PRICING;
+  if (!parsed.success) return DEFAULT_SUBSCRIPTION_PRICING;
+
+  const data = parsed.data;
+
+  // If USD prices were never saved (old Firestore doc), derive them from INR.
+  return {
+    ...data,
+    monthlyUSD: data.monthlyUSD > 0 ? data.monthlyUSD : inrToUsd(data.monthly),
+    quarterlyUSD: data.quarterlyUSD > 0 ? data.quarterlyUSD : inrToUsd(data.quarterly),
+    halfYearlyUSD: data.halfYearlyUSD > 0 ? data.halfYearlyUSD : inrToUsd(data.halfYearly),
+  };
 }
 
 export function parseSubscriptionPlan(
@@ -101,8 +144,19 @@ export function getPlanMonths(plan: SubscriptionPlanKey): number {
 
 export function getPlanPrice(
   pricing: SubscriptionPricing,
-  plan: SubscriptionPlanKey
+  plan: SubscriptionPlanKey,
+  currency: "INR" | "USD" = "INR"
 ): number {
+  if (currency === "USD") {
+    switch (plan) {
+      case "monthly":
+        return pricing.monthlyUSD;
+      case "quarterly":
+        return pricing.quarterlyUSD;
+      case "halfYearly":
+        return pricing.halfYearlyUSD;
+    }
+  }
   return pricing[plan];
 }
 
@@ -110,6 +164,14 @@ export function formatINR(value: number): string {
   return value.toLocaleString("en-IN", {
     maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
   });
+}
+
+export function formatUSD(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).replace("$", ""); // return just the number part if we add $ manually, or let it include $. Let's just use string format.
 }
 
 export function monthlyRate(totalPrice: number, months: number): number {

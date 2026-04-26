@@ -87,12 +87,17 @@ export async function POST(request: NextRequest) {
     // Fetch actual video price for accurate revenue tracking
     const videoDoc = await adminDb.collection("videos").doc(videoId).get();
     const videoData = videoDoc.data();
-    if (videoData && typeof videoData.priceINR === "number") {
+    if (videoData) {
       const statsRef = adminDb.collection("platformStats").doc("totals");
-      await statsRef.set(
-        { totalRevenueINR: FieldValue.increment(videoData.priceINR) },
-        { merge: true }
-      );
+      const incAmount = txData.currency === "USD" ? (videoData.priceUSD || 0) : (videoData.priceINR || 0);
+      const statField = txData.currency === "USD" ? "totalRevenueUSD" : "totalRevenueINR";
+      
+      if (typeof incAmount === "number" && incAmount > 0) {
+        await statsRef.set(
+          { [statField]: FieldValue.increment(incAmount) },
+          { merge: true }
+        );
+      }
     }
 
     return Response.json({ success: true, videoId });

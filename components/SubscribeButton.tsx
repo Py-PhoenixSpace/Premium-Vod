@@ -9,10 +9,12 @@ import { toast } from "sonner";
 import {
   DEFAULT_SUBSCRIPTION_PRICING,
   formatINR,
+  formatUSD,
   normalizeSubscriptionPricing,
   type SubscriptionPricing,
 } from "@/lib/subscription-pricing";
 import { isSubscriptionValid } from "@/lib/subscription-utils";
+import { detectIsIndianUser } from "@/lib/utils";
 
 interface SubscribeButtonProps {
   /** If true, opens the premium modal (Razorpay/Stripe choice). Default: true */
@@ -58,7 +60,8 @@ export default function SubscribeButton({
     };
   }, []);
 
-  const resolvedLabel = label ?? `Choose Plan (from ₹${formatINR(pricing.monthly)})`;
+  const isIndian = detectIsIndianUser();
+  const resolvedLabel = label ?? `Choose Plan (from ${isIndian ? `₹${formatINR(pricing.monthly)}` : `$${formatUSD(pricing.monthlyUSD)}`})`;
 
   async function handleClick() {
     if (!user) {
@@ -72,37 +75,7 @@ export default function SubscribeButton({
     }
 
     setError(null);
-
-    if (openModal) {
-      // Delegate to the PremiumModal which handles Razorpay + Stripe flows
-      openPremiumModal();
-      return;
-    }
-
-    // Fallback: direct Stripe Checkout (used when modal is disabled)
-    setLoading(true);
-    try {
-      const res = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to start checkout");
-      }
-
-      if (data.sessionUrl) {
-        window.location.href = data.sessionUrl;
-      }
-    } catch (err: any) {
-      const msg = err.message || "Something went wrong. Please try again.";
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
+    openPremiumModal();
   }
 
   return (

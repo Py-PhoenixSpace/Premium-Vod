@@ -5,9 +5,11 @@ import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { X, Crown, CheckCircle2, Loader2, Sparkles, CreditCard, Lock, IndianRupee, MessageCircle } from "lucide-react";
+import { detectIsIndianUser } from "@/lib/utils";
 import {
   DEFAULT_SUBSCRIPTION_PRICING,
   formatINR,
+  formatUSD,
   getPlanMonths,
   getPlanPrice,
   monthlyRate,
@@ -78,23 +80,7 @@ declare global {
   }
 }
 
-/**
- * Detect if user is likely from India based on timezone and locale.
- */
-function detectIsIndianUser(): boolean {
 
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    if (tz.startsWith("Asia/Kolkata") || tz.startsWith("Asia/Calcutta")) return true;
-
-    const locale = navigator.language || "";
-    if (locale.startsWith("hi") || locale.startsWith("en-IN")) return true;
-
-    return false;
-  } catch {
-    return false;
-  }
-}
 
 export function PremiumModal() {
   const { isPremiumModalOpen, closePremiumModal } = useUIStore();
@@ -140,7 +126,7 @@ export function PremiumModal() {
 
   // Load Razorpay SDK dynamically when needed
   useEffect(() => {
-    if (!isPremiumModalOpen || !isIndian || razorpayLoaded) return;
+    if (!isPremiumModalOpen || razorpayLoaded) return;
     if (document.getElementById("razorpay-sdk")) {
       setRazorpayLoaded(true);
       return;
@@ -151,7 +137,7 @@ export function PremiumModal() {
     script.async = true;
     script.onload = () => setRazorpayLoaded(true);
     document.body.appendChild(script);
-  }, [isPremiumModalOpen, isIndian, razorpayLoaded]);
+  }, [isPremiumModalOpen, razorpayLoaded]);
 
   // Close on Escape key
   useEffect(() => {
@@ -172,27 +158,7 @@ export function PremiumModal() {
     return () => { document.body.style.overflow = "unset"; };
   }, [isPremiumModalOpen]);
 
-  // Stripe checkout
-  const handleStripeCheckout = useCallback(async () => {
-    setCheckoutError(null);
-    setLoading(true);
-    try {
-      const res = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: selectedPlan }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to create checkout");
-      if (data.sessionUrl) window.location.href = data.sessionUrl;
-    } catch (error) {
-      console.error("Stripe checkout failed:", error);
-      setCheckoutError(
-        error instanceof Error ? error.message : "Failed to create checkout"
-      );
-      setLoading(false);
-    }
-  }, [selectedPlan]);
+
 
   // Razorpay checkout
   const handleRazorpayCheckout = useCallback(async () => {
@@ -202,7 +168,7 @@ export function PremiumModal() {
       const res = await fetch("/api/razorpay/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: selectedPlan }),
+        body: JSON.stringify({ plan: selectedPlan, currency: isIndian ? "INR" : "USD" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to create order");
@@ -265,7 +231,7 @@ export function PremiumModal() {
       );
       setLoading(false);
     }
-  }, [closePremiumModal, selectedPlan, user]);
+  }, [closePremiumModal, selectedPlan, user, isIndian]);
 
   if (!isPremiumModalOpen) return null;
 
@@ -279,7 +245,8 @@ export function PremiumModal() {
   ];
 
   const planOrder: SubscriptionPlanKey[] = ["monthly", "quarterly", "halfYearly"];
-  const selectedPlanPrice = getPlanPrice(pricing, selectedPlan);
+  const currency = isIndian ? "INR" : "USD";
+  const selectedPlanPrice = getPlanPrice(pricing, selectedPlan, currency);
 
   return (
     <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
@@ -336,9 +303,10 @@ export function PremiumModal() {
               <div className="grid grid-cols-3 gap-2 mb-3">
                 {planOrder.map((plan) => {
                   const months = getPlanMonths(plan);
-                  const total = getPlanPrice(pricing, plan);
+                  const total = getPlanPrice(pricing, plan, currency);
                   const unit = monthlyRate(total, months);
-                  const savings = plan === "monthly" ? 0 : savingsPercent(pricing.monthly, total, months);
+                  const baseMonthly = getPlanPrice(pricing, "monthly", currency);
+                  const savings = plan === "monthly" ? 0 : savingsPercent(baseMonthly, total, months);
                   const isSelected = selectedPlan === plan;
 
                   return (
@@ -358,8 +326,12 @@ export function PremiumModal() {
                       <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                         {SUBSCRIPTION_PLAN_META[plan].title}
                       </p>
-                      <p className="text-sm font-bold mt-1">₹{formatINR(total)}</p>
-                      <p className="text-[10px] text-muted-foreground">₹{formatINR(unit)}/mo</p>
+                      <p className="text-sm font-bold mt-1">
+                        {isIndian ? `₹${formatINR(total)}` : `$${formatUSD(total)}`}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {isIndian ? `₹${formatINR(unit)}` : `$${formatUSD(unit)}`}/mo
+                      </p>
                       {savings > 0 && <p className="text-[10px] text-primary mt-1">Save {savings}%</p>}
                     </button>
                   );
@@ -368,11 +340,8 @@ export function PremiumModal() {
 
               <div className="flex justify-center mt-2">
                 <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-white/5 px-3 py-1 rounded-full border border-white/10">
-                  {isIndian ? (
-                    <><IndianRupee className="w-3 h-3" />Powered by Razorpay</>
-                  ) : (
-                    <><CreditCard className="w-3 h-3" />Powered by Stripe</>
-                  )}
+                  <Lock className="w-3 h-3" />
+                  Secured by Razorpay
                 </span>
               </div>
             </div>
@@ -391,21 +360,16 @@ export function PremiumModal() {
           {/* Payment Button */}
           <div className="space-y-3">
             <Button
-              onClick={isIndian ? handleRazorpayCheckout : handleStripeCheckout}
-              disabled={loading || (isIndian && !razorpayLoaded)}
+              onClick={handleRazorpayCheckout}
+              disabled={loading || !razorpayLoaded}
               className="w-full h-14 rounded-xl brand-gradient text-white font-bold text-lg shadow-[0_8px_30px_-8px_oklch(0.55_0.28_295/0.8)] hover:shadow-[0_8px_40px_-8px_oklch(0.55_0.28_295/1)] hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
             >
               {loading ? (
                 <Loader2 className="w-6 h-6 animate-spin" />
-              ) : isIndian ? (
-                <>
-                  <IndianRupee className="w-5 h-5" />
-                  Pay ₹{formatINR(selectedPlanPrice)} with Razorpay
-                </>
               ) : (
                 <>
-                  <CreditCard className="w-5 h-5" />
-                  Checkout {SUBSCRIPTION_PLAN_META[selectedPlan].title} with Stripe
+                  <Lock className="w-5 h-5" />
+                  Pay {isIndian ? `₹${formatINR(selectedPlanPrice)}` : `$${formatUSD(selectedPlanPrice)}`} Securely
                 </>
               )}
             </Button>

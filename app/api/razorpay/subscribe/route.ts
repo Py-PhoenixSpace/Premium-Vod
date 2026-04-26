@@ -29,15 +29,16 @@ export async function POST(request: NextRequest) {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
 
-  let body: { plan?: string } = {};
+  let body: { plan?: string; currency?: string } = {};
   try {
     body = await request.json();
   } catch {
-    // Optional body; defaults to monthly when absent.
+    // Optional body; defaults to monthly/INR when absent.
   }
 
   const selectedPlan = parseSubscriptionPlan(body.plan, "monthly");
   const selectedPlanMonths = getPlanMonths(selectedPlan);
+  const currency = body.currency === "USD" ? "USD" : "INR";
 
   try {
     const userDoc = await adminDb.collection("users").doc(auth.uid).get();
@@ -53,17 +54,17 @@ export async function POST(request: NextRequest) {
       .doc(PRICING_SETTINGS_DOC_ID)
       .get();
     const pricing = normalizeSubscriptionPricing(pricingDoc.data() || {});
-    const subscriptionPriceINR =
-      getPlanPrice(pricing, selectedPlan) ||
-      getPlanPrice(DEFAULT_SUBSCRIPTION_PRICING, selectedPlan);
+    const subscriptionPrice =
+      getPlanPrice(pricing, selectedPlan, currency) ||
+      getPlanPrice(DEFAULT_SUBSCRIPTION_PRICING, selectedPlan, currency);
 
-    if (subscriptionPriceINR < 1) {
-      return Response.json({ error: "Invalid subscription price (minimum ₹1)" }, { status: 400 });
+    if (subscriptionPrice < 1) {
+      return Response.json({ error: "Invalid subscription price (minimum 1)" }, { status: 400 });
     }
 
     const order = await razorpay.orders.create({
-      amount: Math.round(subscriptionPriceINR * 100),
-      currency: "INR",
+      amount: Math.round(subscriptionPrice * 100),
+      currency: currency,
       receipt: `s_${auth.uid.slice(0, 20)}_${Date.now().toString(36)}`,
       notes: {
         userId: auth.uid,
@@ -75,8 +76,8 @@ export async function POST(request: NextRequest) {
 
     await adminDb.collection("transactions").add({
       userId: auth.uid,
-      amount: subscriptionPriceINR,
-      currency: "INR",
+      amount: subscriptionPrice,
+      currency: currency,
       gateway: "razorpay",
       type: "subscription_cycle",
       status: "pending",
@@ -88,8 +89,8 @@ export async function POST(request: NextRequest) {
 
     return Response.json({
       orderId: order.id,
-      amount: subscriptionPriceINR * 100,
-      currency: "INR",
+      amount: subscriptionPrice * 100,
+      currency: currency,
       plan: selectedPlan,
       durationMonths: selectedPlanMonths,
       keyId: process.env.RAZORPAY_KEY_ID,
