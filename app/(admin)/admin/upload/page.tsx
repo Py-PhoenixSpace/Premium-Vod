@@ -14,8 +14,82 @@ import {
   Sparkles,
   HardDrive,
   Database,
+  X,
 } from "lucide-react";
 import type { MediaType, VideoCategory } from "@/types";
+
+// ─── Chunked Upload Constants ──────────────────────────────────────────────
+// Cloudinary supports chunks up to 100 MB; we use exactly 100 MB per chunk.
+const CHUNK_SIZE = 100 * 1024 * 1024; // 100 MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB hard cap
+
+/**
+ * Upload a single chunk via XHR.
+ * Returns the parsed JSON from Cloudinary on the FINAL chunk,
+ * or null for intermediate chunks.
+ */
+function uploadChunk(
+  chunk: Blob,
+  formData: FormData,
+  cloudName: string,
+  resourceType: string,
+  uniqueUploadId: string,
+  startByte: number,
+  endByte: number,
+  totalSize: number,
+  onChunkProgress: (loaded: number) => void
+): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    // Copy all base fields from the pre-built formData
+    for (const [key, val] of formData.entries()) {
+      fd.append(key, val);
+    }
+    fd.set("file", chunk);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      "POST",
+      `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`
+    );
+    // Cloudinary chunked-upload headers
+    xhr.setRequestHeader("X-Unique-Upload-Id", uniqueUploadId);
+    xhr.setRequestHeader(
+      "Content-Range",
+      `bytes ${startByte}-${endByte - 1}/${totalSize}`
+    );
+    // No explicit timeout — large files can take tens of minutes
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onChunkProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          resolve({});
+        }
+      } else {
+        // Surface Cloudinary's error message when possible
+        let errMsg = "Chunk upload failed";
+        try {
+          const errBody = JSON.parse(xhr.responseText);
+          if (errBody?.error?.message) errMsg = errBody.error.message;
+        } catch { /* ignore */ }
+        reject(new Error(errMsg));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Network error during chunk upload"));
+    xhr.send(fd);
+  });
+}
+
+/** Format bytes → human-readable string (MB / GB) */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface BucketUsage {
   id: string;
@@ -105,16 +179,26 @@ export default function AdminUploadPage() {
     return "from-primary to-violet-400";
   }
 
+  // ─── Chunked upload handler ────────────────────────────────────────────
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
       setError(`Please select a ${mediaType} file`);
       return;
     }
+
+    // Guard: reject files above 5 GB
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`File is too large (${formatBytes(file.size)}). Maximum allowed size is 5 GB.`);
+      return;
+    }
+
     setUploading(true);
     setError("");
     setProgress(0);
+
     try {
+      // 1. Get a signed upload request from our server
       const signRes = await fetch("/api/video/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -132,56 +216,80 @@ export default function AdminUploadPage() {
       if (!signRes.ok) throw new Error("Failed to get upload signature");
       const signData = await signRes.json();
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("api_key", signData.apiKey);
-      formData.append("timestamp", signData.timestamp.toString());
-      formData.append("signature", signData.signature);
-      formData.append("folder", signData.folder);
-      formData.append("public_id", signData.publicId);
-      formData.append("overwrite", "false");
-      formData.append("invalidate", "false");
-      if (signData.eager) formData.append("eager", signData.eager);
-      if (signData.eagerAsync) formData.append("eager_async", signData.eagerAsync);
-      if (signData.notificationUrl) formData.append("eager_notification_url", signData.notificationUrl);
+      // 2. Build the shared FormData (everything except the file blob itself)
+      const baseFormData = new FormData();
+      baseFormData.append("api_key", signData.apiKey);
+      baseFormData.append("timestamp", signData.timestamp.toString());
+      baseFormData.append("signature", signData.signature);
+      baseFormData.append("folder", signData.folder);
+      baseFormData.append("public_id", signData.publicId);
+      baseFormData.append("overwrite", "false");
+      baseFormData.append("invalidate", "false");
+      if (signData.eager) baseFormData.append("eager", signData.eager);
+      if (signData.eagerAsync) baseFormData.append("eager_async", signData.eagerAsync);
+      if (signData.notificationUrl)
+        baseFormData.append("eager_notification_url", signData.notificationUrl);
 
-      const xhr = new XMLHttpRequest();
-      const cloudinaryResourceType = signData.mediaType || mediaType;
-      xhr.open("POST", `https://api.cloudinary.com/v1_1/${signData.cloudName}/${cloudinaryResourceType}/upload`);
-      xhr.timeout = 120000;
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) setProgress(Math.round((event.loaded / event.total) * 100));
-      };
+      const resourceType: string = signData.mediaType || mediaType;
+      const cloudName: string = signData.cloudName;
+      const totalSize = file.size;
+      const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
 
-      const cloudinaryResponse: any = await new Promise((resolve, reject) => {
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch {
-              resolve({});
-            }
-          } else {
-            reject(new Error("Upload failed"));
+      // Unique ID that ties all chunks together (Cloudinary requirement)
+      const uniqueUploadId = crypto.randomUUID();
+
+      let cloudinaryResponse: Record<string, unknown> | null = null;
+      let bytesUploadedSoFar = 0;
+
+      // 3. Upload chunks sequentially
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const startByte = chunkIndex * CHUNK_SIZE;
+        const endByte = Math.min(startByte + CHUNK_SIZE, totalSize);
+        const chunk = file.slice(startByte, endByte);
+
+        const bytesBeforeChunk = bytesUploadedSoFar;
+        const chunkSize = endByte - startByte;
+
+        const result = await uploadChunk(
+          chunk,
+          baseFormData,
+          cloudName,
+          resourceType,
+          uniqueUploadId,
+          startByte,
+          endByte,
+          totalSize,
+          (loaded: number) => {
+            // Combine already-uploaded bytes with current chunk progress
+            const totalLoaded = bytesBeforeChunk + loaded;
+            setProgress(Math.round((totalLoaded / totalSize) * 100));
           }
-        };
-        xhr.onerror = () => reject(new Error("Upload failed"));
-        xhr.ontimeout = () => reject(new Error("Upload timed out. Please try again."));
-        xhr.send(formData);
-      });
+        );
+
+        bytesUploadedSoFar += chunkSize;
+        setProgress(Math.round((bytesUploadedSoFar / totalSize) * 100));
+
+        // Cloudinary only returns the full response on the final chunk
+        if (result && Object.keys(result).length > 0) {
+          cloudinaryResponse = result;
+        }
+      }
 
       setProgress(100);
 
-      // Finalize the video in Firestore using Cloudinary's response data
-      const finalizedPublicId = cloudinaryResponse.public_id || `${signData.folder}/${signData.publicId}`;
+      // 4. Finalize: save metadata to Firestore
+      const finalizedPublicId =
+        (cloudinaryResponse?.public_id as string) ||
+        `${signData.folder}/${signData.publicId}`;
+
       const finalizeRes = await fetch("/api/video/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           videoId: signData.videoId,
           publicId: finalizedPublicId,
-          duration: cloudinaryResponse.duration || 0,
-          secureUrl: cloudinaryResponse.secure_url || "",
+          duration: (cloudinaryResponse?.duration as number) || 0,
+          secureUrl: (cloudinaryResponse?.secure_url as string) || "",
           title,
           description,
           category,
@@ -197,7 +305,12 @@ export default function AdminUploadPage() {
       }
 
       setSuccess(true);
-      setTitle(""); setDescription(""); setPriceINR(""); setPriceUSD(""); setIsPremium(false); setFile(null);
+      setTitle("");
+      setDescription("");
+      setPriceINR("");
+      setPriceUSD("");
+      setIsPremium(false);
+      setFile(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (err: any) {
       setError(err.message || "Upload failed");
@@ -335,24 +448,41 @@ export default function AdminUploadPage() {
               {mediaType === "image" ? "Image File" : "Video File"}
             </Label>
             <div
-              onClick={() => fileRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+              onClick={() => !uploading && fileRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all ${
+                uploading ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+              } ${
                 file ? "border-primary/40 bg-primary/5" : "border-border/40 hover:border-primary/30 hover:bg-primary/5"
               }`}
             >
               {file ? (
                 <div className="flex items-center justify-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                     {mediaType === "image" ? (
                       <ImageIcon className="w-6 h-6 text-primary" />
                     ) : (
                       <Film className="w-6 h-6 text-primary" />
                     )}
                   </div>
-                  <div className="text-left">
-                    <p className="font-medium text-sm">{file.name}</p>
-                    <p className="text-xs text-muted-foreground">{(file.size / (1024 * 1024)).toFixed(1)} MB</p>
+                  <div className="text-left flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatBytes(file.size)}
+                      {file.size > MAX_FILE_SIZE && (
+                        <span className="text-destructive ml-2 font-semibold">⚠ Exceeds 5 GB limit</span>
+                      )}
+                    </p>
                   </div>
+                  {!uploading && (
+                    <button
+                      type="button"
+                      onClick={(ev) => { ev.stopPropagation(); setFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                      className="shrink-0 w-7 h-7 rounded-full bg-muted/60 flex items-center justify-center hover:bg-destructive/20 transition-colors"
+                      title="Remove file"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ) : (
                 <>
@@ -369,7 +499,7 @@ export default function AdminUploadPage() {
                   <p className="text-xs text-muted-foreground/60 mt-1">
                     {mediaType === "image"
                       ? "JPG, PNG, or WebP"
-                      : "MP4, MOV, or WebM"}
+                      : "MP4, MOV, MKV, or WebM · Up to 5 GB · 1080p & 2K supported"}
                   </p>
                 </>
               )}
@@ -468,13 +598,23 @@ export default function AdminUploadPage() {
             <div className="space-y-2">
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>
-                  Uploading {mediaType} to {buckets.find(b => b.id === storageBucket)?.label || "Cloudinary"}...
+                  {progress < 100
+                    ? `Uploading ${mediaType} to ${buckets.find(b => b.id === storageBucket)?.label || "Cloudinary"} — please don't close this tab…`
+                    : "Finalizing and saving metadata…"}
                 </span>
-                <span className="font-mono">{progress}%</span>
+                <span className="font-mono font-semibold">{progress}%</span>
               </div>
               <div className="h-2 bg-muted/50 rounded-full overflow-hidden">
-                <div className="h-full brand-gradient rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }} />
+                <div
+                  className="h-full brand-gradient rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${progress}%` }}
+                />
               </div>
+              {file && (
+                <p className="text-[10px] text-muted-foreground/70 text-right">
+                  {formatBytes(Math.round((progress / 100) * file.size))} / {formatBytes(file.size)} uploaded
+                </p>
+              )}
             </div>
           )}
 
