@@ -21,7 +21,7 @@ import type { MediaType, VideoCategory } from "@/types";
 // ─── Chunked Upload Constants ──────────────────────────────────────────────
 // Cloudinary supports chunks up to 100 MB; we use exactly 100 MB per chunk.
 const CHUNK_SIZE = 100 * 1024 * 1024; // 100 MB
-const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB hard cap
+const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB hard cap (accommodates long 4K videos)
 
 /**
  * Upload a single chunk via XHR.
@@ -187,9 +187,9 @@ export default function AdminUploadPage() {
       return;
     }
 
-    // Guard: reject files above 5 GB
+    // Guard: reject files above 10 GB
     if (file.size > MAX_FILE_SIZE) {
-      setError(`File is too large (${formatBytes(file.size)}). Maximum allowed size is 5 GB.`);
+      setError(`File is too large (${formatBytes(file.size)}). Maximum allowed size is 10 GB.`);
       return;
     }
 
@@ -469,7 +469,7 @@ export default function AdminUploadPage() {
                     <p className="text-xs text-muted-foreground">
                       {formatBytes(file.size)}
                       {file.size > MAX_FILE_SIZE && (
-                        <span className="text-destructive ml-2 font-semibold">⚠ Exceeds 5 GB limit</span>
+                        <span className="text-destructive ml-2 font-semibold">⚠ Exceeds 10 GB limit</span>
                       )}
                     </p>
                   </div>
@@ -499,7 +499,7 @@ export default function AdminUploadPage() {
                   <p className="text-xs text-muted-foreground/60 mt-1">
                     {mediaType === "image"
                       ? "JPG, PNG, or WebP"
-                      : "MP4, MOV, MKV, or WebM · Up to 5 GB · 1080p & 2K supported"}
+                      : "MP4, MOV, MKV, or WebM · Up to 10 GB · 1080p, 2K & 4K supported"}
                   </p>
                 </>
               )}
