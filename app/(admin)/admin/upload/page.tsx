@@ -19,14 +19,19 @@ import {
 import type { MediaType, VideoCategory } from "@/types";
 
 // ─── Chunked Upload Constants ──────────────────────────────────────────────
-// Cloudinary supports chunks up to 100 MB; we use exactly 100 MB per chunk.
-const CHUNK_SIZE = 100 * 1024 * 1024; // 100 MB
+// 5 MB chunks — safe for all hosting platforms (Vercel, Railway, etc.).
+// The proxy route streams each chunk to Cloudinary server-side, eliminating CORS.
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB hard cap (accommodates long 4K videos)
 
 /**
  * Upload a single chunk via XHR.
  * Returns the parsed JSON from Cloudinary on the FINAL chunk,
  * or null for intermediate chunks.
+ */
+/**
+ * Upload a single chunk via XHR → /api/video/chunk-proxy (same-origin, no CORS).
+ * The proxy streams it to Cloudinary server-side.
  */
 function uploadChunk(
   chunk: Blob,
@@ -41,24 +46,24 @@ function uploadChunk(
 ): Promise<Record<string, unknown> | null> {
   return new Promise((resolve, reject) => {
     const fd = new FormData();
-    // Copy all base fields from the pre-built formData
+    // Copy all signed fields from the pre-built formData
     for (const [key, val] of formData.entries()) {
       fd.append(key, val);
     }
     fd.set("file", chunk);
 
     const xhr = new XMLHttpRequest();
-    xhr.open(
-      "POST",
-      `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`
-    );
-    // Cloudinary chunked-upload headers
-    xhr.setRequestHeader("X-Unique-Upload-Id", uniqueUploadId);
+    // ↓ Same-origin proxy — no CORS preflight at all
+    xhr.open("POST", "/api/video/chunk-proxy");
+    // Pass Cloudinary context as custom x-cld-* headers to the proxy
+    xhr.setRequestHeader("x-cld-cloud-name",    cloudName);
+    xhr.setRequestHeader("x-cld-resource-type", resourceType);
+    xhr.setRequestHeader("x-cld-upload-id",     uniqueUploadId);
     xhr.setRequestHeader(
-      "Content-Range",
+      "x-cld-content-range",
       `bytes ${startByte}-${endByte - 1}/${totalSize}`
     );
-    // No explicit timeout — large files can take tens of minutes
+    // No explicit timeout — large files can take many minutes
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onChunkProgress(event.loaded);
     };
@@ -70,7 +75,6 @@ function uploadChunk(
           resolve({});
         }
       } else {
-        // Surface Cloudinary's error message when possible
         let errMsg = "Chunk upload failed";
         try {
           const errBody = JSON.parse(xhr.responseText);
