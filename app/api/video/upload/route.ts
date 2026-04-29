@@ -7,9 +7,11 @@ import type { MediaType } from "@/types";
 
 /**
  * POST /api/video/upload
- * Admin-only: generates a Cloudinary signed upload signature for direct
- * client→Cloudinary upload. Uses signUploadRequest() which is concurrency-safe
- * and never mutates the global Cloudinary SDK config.
+ * Admin-only: generates a signed Cloudinary upload signature for direct
+ * client→Cloudinary upload. Supports both single-file and segmented uploads.
+ *
+ * Segmented: pass `videoId` (shared across all segments) and `segmentIndex`
+ * (0-based). Each segment gets public_id like <videoId>_seg0001.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireAdmin();
@@ -26,14 +28,20 @@ export async function POST(request: NextRequest) {
 
   try {
     const safeMediaType: MediaType = mediaType === "image" ? "image" : "video";
-    const bucket = getBucketConfig(storageBucket);
-    const folder = safeMediaType === "image" ? "premiumvod/images" : "premiumvod/videos";
-    const videoId = crypto.randomUUID();
+    const bucket   = getBucketConfig(storageBucket);
+    const folder   = safeMediaType === "image" ? "premiumvod/images" : "premiumvod/videos";
+
+    // Segmented uploads: caller provides a shared videoId + per-segment index
+    const videoId  = (body.videoId as string) || crypto.randomUUID();
+    const segIdx   = body.segmentIndex as number | undefined;
+    const publicId = segIdx !== undefined
+      ? `${videoId}_seg${String(segIdx).padStart(4, "0")}`
+      : videoId;
 
     const paramsToSign: Record<string, string | number> = {
       folder,
-      public_id: videoId,
-      overwrite: "false",
+      public_id: publicId,
+      overwrite:  "false",
       invalidate: "false",
     };
 
@@ -52,20 +60,14 @@ export async function POST(request: NextRequest) {
 
     // signUploadRequest is fully concurrency-safe — no global config mutation
     const { signature, apiKey, cloudName, timestamp } = signUploadRequest(
-      paramsToSign,
-      bucket.id
+      paramsToSign, bucket.id
     );
 
     return Response.json({
-      signature,
-      timestamp,
-      folder,
-      publicId: videoId,
+      signature, timestamp, folder,
+      publicId,            // segment-specific or single-file ID
       mediaType: safeMediaType,
-      cloudName,
-      apiKey,
-      videoId,
-      storageBucket: bucket.id,
+      cloudName, apiKey, videoId, storageBucket: bucket.id,
       eager: paramsToSign.eager,
       eagerAsync: paramsToSign.eager_async,
       notificationUrl: paramsToSign.eager_notification_url,

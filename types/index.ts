@@ -56,6 +56,13 @@ export interface WatchHistoryEntry {
   updatedAt: Timestamp;
 }
 
+export interface VideoSegment {
+  index: number;
+  publicId: string;
+  duration: number;        // seconds
+  storageBucket: string;
+}
+
 export interface Video {
   videoId: string;
   title: string;
@@ -71,6 +78,10 @@ export interface Video {
   durationInSeconds: number;
   status: VideoStatus;
   storageBucket?: string; // which Cloudinary bucket stores this video
+  // Segmented video fields (present only when isSegmented === true)
+  isSegmented?: boolean;
+  segments?: VideoSegment[];
+  totalDuration?: number;  // sum of all segment durations
   createdAt: Timestamp;
 }
 

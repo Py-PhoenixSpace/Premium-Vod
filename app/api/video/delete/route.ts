@@ -36,21 +36,27 @@ export async function POST(request: NextRequest) {
     const video = videoDoc.data()!;
     const resourceType = video.mediaType === "image" ? "image" : "video";
 
-    // Delete from Cloudinary if a public_id exists
-    if (video.cloudinaryPublicId) {
-      try {
+    // Delete from Cloudinary — handle both segmented and single-file videos
+    try {
+      if (video.isSegmented && Array.isArray(video.segments) && video.segments.length > 0) {
+        // Delete every segment sequentially (Cloudinary Admin API is not concurrent-safe)
+        for (const seg of video.segments as any[]) {
+          const cld = getCloudinaryInstance(seg.storageBucket || video.storageBucket);
+          await cld.uploader.destroy(seg.publicId, {
+            resource_type: "video",
+            invalidate: true,
+          });
+        }
+      } else if (video.cloudinaryPublicId) {
         const cld = getCloudinaryInstance(video.storageBucket);
         await cld.uploader.destroy(video.cloudinaryPublicId, {
           resource_type: resourceType,
           invalidate: true,
         });
-      } catch (cloudErr) {
-        // Log but continue — Firestore record must still be cleaned up
-        console.error(
-          "Cloudinary delete failed (continuing with Firestore delete):",
-          cloudErr
-        );
       }
+    } catch (cloudErr) {
+      // Log but continue — Firestore record must still be cleaned up
+      console.error("Cloudinary delete failed (continuing with Firestore delete):", cloudErr);
     }
 
     await videoRef.delete();

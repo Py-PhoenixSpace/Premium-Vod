@@ -9,6 +9,7 @@ import type { CloudinaryVideoPlayer } from "next-cloudinary";
 import Image from "next/image";
 import type { MediaType } from "@/types";
 import { useUIStore } from "@/lib/stores/ui-store";
+import SegmentedVideoPlayer, { type SegmentInfo } from "@/components/SegmentedVideoPlayer";
 
 interface VideoPlayerProps {
   videoId: string;
@@ -16,13 +17,17 @@ interface VideoPlayerProps {
 }
 
 interface StreamData {
-  url: string;
-  mediaType: MediaType;
-  lastTimestamp: number;
-  title: string;
-  description: string;
+  url?:             string;         // single-file videos
+  mediaType:        MediaType;
+  lastTimestamp:    number;
+  title:            string;
+  description:      string;
   durationInSeconds: number;
-  category: string;
+  category:         string;
+  // Segmented
+  isSegmented?:     boolean;
+  segments?:        SegmentInfo[];
+  totalDuration?:   number;
 }
 
 export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
@@ -231,6 +236,19 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
     );
   }
 
+  // ── Segmented video path ───────────────────────────────────────────────
+  if (streamData.isSegmented && streamData.segments?.length) {
+    return (
+      <SegmentedVideoPlayer
+        segments={streamData.segments}
+        totalDuration={streamData.totalDuration || streamData.durationInSeconds || 0}
+        lastTimestamp={streamData.lastTimestamp || 0}
+        title={streamData.title}
+        onProgress={(t, completed) => saveProgress(t, completed)}
+      />
+    );
+  }
+
   if (streamData.mediaType === "image") {
     return (
       <div className="relative w-full rounded-2xl overflow-hidden brand-glow border border-primary/30 ring-1 ring-white/10 shadow-2xl bg-black/40">
@@ -240,7 +258,7 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
           onContextMenuCapture={(e) => e.preventDefault()}
         >
           <Image
-            src={streamData.url}
+            src={streamData.url!}
             alt={streamData.title || "Premium image"}
             fill
             className="object-contain"
@@ -277,7 +295,7 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
         id={`player-${videoId}`}
         width="1920"
         height="1080"
-        src={streamData.url}
+        src={streamData.url!}
         logo={false}
         colors={{
           accent: "#FF4500",

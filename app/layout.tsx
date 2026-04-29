@@ -85,6 +85,7 @@ import { PremiumModal } from "@/components/PremiumModal";
 import { ExpiredSubscriptionModal } from "@/components/ExpiredSubscriptionModal";
 import { WelcomePremiumModal } from "@/components/WelcomePremiumModal";
 import { SupportChatFAB } from "@/components/SupportChatFAB";
+import { UploadProgressFAB } from "@/components/UploadProgressFAB";
 import { Toaster } from "sonner";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 
@@ -117,6 +118,7 @@ export default function RootLayout({
             <ExpiredSubscriptionModal />
             <WelcomePremiumModal />
             <SupportChatFAB />
+            <UploadProgressFAB />
             <Toaster
               position="bottom-right"
               theme="system"
