@@ -11,6 +11,7 @@ import {
 import type { MediaType, VideoCategory } from "@/types";
 import {
   splitVideoFile, SPLIT_THRESHOLD,
+  MAX_SPLITTABLE_MOBILE,
   type SplitSegment, type SplitProgress,
 } from "@/lib/video-splitter";
 import { useUploadStore } from "@/lib/stores/upload-store";
@@ -164,8 +165,13 @@ export default function AdminUploadPage() {
   useEffect(() => { const t = setTimeout(() => checkDuplicate(title), 600); return () => clearTimeout(t); }, [title, checkDuplicate]);
   useEffect(() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }, [mediaType]);
 
-  const isLargeVideo = file && mediaType === "video" && file.size > SPLIT_THRESHOLD;
-  const tooBig       = file && file.size > MAX_FILE_SIZE;
+  const isLargeVideo    = file && mediaType === "video" && file.size > SPLIT_THRESHOLD;
+  const tooBig          = file && file.size > MAX_FILE_SIZE;
+  // Soft warning for mobile devices with files > 800 MB (may work on modern iPhones, may crash on older ones)
+  const isMobileLargeWarning = typeof navigator !== "undefined"
+    && /Mobi|Android/i.test(navigator.userAgent)
+    && !!file && mediaType === "video"
+    && file.size > MAX_SPLITTABLE_MOBILE;
 
   // ── Main upload handler — PARALLEL uploads ───────────────────────────────
   async function handleUpload(e: React.FormEvent) {
@@ -460,12 +466,15 @@ export default function AdminUploadPage() {
                   </div>
                   <p className="text-sm text-muted-foreground">Click to select {mediaType === "image" ? "image" : "video"} file</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    {mediaType === "image" ? "JPG, PNG, or WebP" : "MP4, MOV, MKV, or WebM · Up to 3 GB · 1080p, 2K & 4K · Auto-segmented"}
+                    {mediaType === "image" ? "JPG, PNG, or WebP" : "MP4, MOV, HEVC, MKV · Desktop: up to 3 GB · Mobile: up to 800 MB · Auto-segmented"}
                   </p>
                 </>
               )}
             </div>
-            <input ref={fileRef} type="file" accept={mediaType === "image" ? "image/*" : "video/*"}
+            <input ref={fileRef} type="file"
+              accept={mediaType === "image"
+                ? "image/*"
+                : "video/*,video/quicktime,.mov,.hevc,.mp4,.mkv,.webm"}
               className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </div>
 
@@ -628,6 +637,21 @@ export default function AdminUploadPage() {
                   {phase === "finalizing"
                     ? "Saving metadata — almost done, please don't close this tab."
                     : "Upload in progress — keep this tab open until complete."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Mobile large-file advisory — non-blocking, user can still proceed */}
+          {isMobileLargeWarning && !busy && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 flex items-start gap-2.5">
+              <span className="text-amber-400 text-base shrink-0 mt-0.5">⚠</span>
+              <div>
+                <p className="text-xs font-semibold text-amber-300">Large file on mobile</p>
+                <p className="text-[11px] text-amber-200/70 mt-0.5">
+                  {formatBytes(file?.size ?? 0)} detected. This will work on iPhone 12+ (4 GB RAM) but
+                  may crash older iPhones. Keep your screen on during the upload.
+                  For best results, use a desktop browser or WiFi.
                 </p>
               </div>
             </div>

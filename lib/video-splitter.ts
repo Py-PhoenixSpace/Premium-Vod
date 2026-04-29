@@ -20,7 +20,19 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 // ─── Constants ─────────────────────────────────────────────────────────────
 export const SPLIT_THRESHOLD   = 95  * 1024 * 1024; // 95 MB — skip split below this
 export const SEGMENT_TARGET    = 90  * 1024 * 1024; // 90 MB target per segment
-export const MAX_SPLITTABLE    = 3   * 1024 * 1024 * 1024; // 3 GB WASM practical limit
+export const MAX_SPLITTABLE    = 3   * 1024 * 1024 * 1024; // 3 GB WASM limit (desktop)
+export const MAX_SPLITTABLE_MOBILE = 800 * 1024 * 1024; // 800 MB — iOS tab crash prevention
+
+/** Returns the lowercase extension of a file, defaulting to "mp4". */
+function fileExt(file: File): string {
+  const parts = file.name.split(".");
+  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "mp4";
+}
+
+/** Returns true if the file is a MOV/QuickTime container (iPhone camera). */
+function isMov(file: File): boolean {
+  return fileExt(file) === "mov" || file.type === "video/quicktime";
+}
 
 const FFMPEG_CORE_VERSION = "0.12.6";
 const CDN = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
@@ -121,12 +133,22 @@ export async function splitVideoFile(
 
   const ffmpeg = await getFFmpeg();
 
+  // Use the correct input filename so ffmpeg container detection works
+  // (MOV files need to be named .mov for reliable demuxer selection)
+  const movInput = isMov(file);
+  const inputName = movInput ? "input.mov" : "input.mp4";
+
   // Write input once — stays in WASM virtual FS throughout
   onProgress?.({
     phase: "splitting", segmentsDone: 0, totalSegments,
     message: "Preparing video file…",
   });
-  await ffmpeg.writeFile("input.mp4", await fetchFile(file));
+  await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+  // Extra args for HEVC/MOV inputs:
+  // -tag:v hvc1 — makes HEVC segments recognised by QuickTime/iOS players
+  // Without this, iPhone-recorded HEVC videos produce unplayable MP4 segments.
+  const extraArgs = movInput ? ["-tag:v", "hvc1"] : [];
 
   // ── Extract segments one at a time ─────────────────────────────────────
   const segments: SplitSegment[] = [];
@@ -146,9 +168,10 @@ export async function splitVideoFile(
 
     await ffmpeg.exec([
       "-ss", toTimestamp(startSec),     // seek BEFORE -i for fast seek
-      "-i",  "input.mp4",
+      "-i",  inputName,
       "-t",  toTimestamp(durSec),
       "-c",  "copy",                    // stream copy — no re-encode
+      ...extraArgs,                     // HEVC tag for MOV sources
       "-avoid_negative_ts", "make_zero",
       "-movflags", "+faststart",
       "-y",
@@ -179,7 +202,7 @@ export async function splitVideoFile(
   }
 
   // Clean up input file from virtual FS
-  try { await ffmpeg.deleteFile("input.mp4"); } catch { /* ignore */ }
+  try { await ffmpeg.deleteFile(inputName); } catch { /* ignore */ }
 
   if (segments.length === 0) {
     throw new Error("Video splitting produced no output. Please check the file format.");
