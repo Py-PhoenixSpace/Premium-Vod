@@ -15,8 +15,36 @@ import {
 } from "@/lib/video-splitter";
 import { useUploadStore } from "@/lib/stores/upload-store";
 
-// Parallel upload concurrency — 3 simultaneous XHRs saturates most connections
+// Desktop: 3 parallel XHRs. Mobile: 1 — fewer connections = fewer drops on weak networks.
 const CONCURRENCY = 3;
+
+// ─── Retry wrapper — handles dropped mobile connections ─────────────────────────
+// Retries up to MAX_RETRIES times with exponential backoff (2s, 4s, 8s).
+// AbortError (user cancel) bypasses retries immediately.
+async function uploadWithRetry(
+  blob: Blob,
+  signData: Record<string, any>,
+  onProgress: (frac: number) => void,
+  signal: AbortSignal,
+  maxRetries = 3,
+): Promise<Record<string, any>> {
+  let lastErr: Error = new Error("Unknown error");
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Reset progress to 0 on retry so the bar doesn't jump backwards confusingly
+      if (attempt > 0) onProgress(0);
+      return await uploadToCloudinary(blob, signData, onProgress, signal);
+    } catch (err: any) {
+      if (err?.name === "AbortError") throw err;           // user cancelled — stop immediately
+      lastErr = err;
+      if (attempt < maxRetries) {
+        const delaySec = Math.pow(2, attempt + 1);          // 2s, 4s, 8s
+        await new Promise(r => setTimeout(r, delaySec * 1000));
+      }
+    }
+  }
+  throw new Error(`Segment upload failed after ${maxRetries} retries: ${lastErr.message}`);
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAX_FILE_SIZE = 3 * 1024 * 1024 * 1024; // 3 GB (WASM practical limit)
@@ -167,9 +195,22 @@ export default function AdminUploadPage() {
 
       store.start(title, grandTotal);
 
+      // Adaptive concurrency: mobile gets 1 worker (fewer dropped connections)
+      const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+      const concurrency = isMobile ? 1 : CONCURRENCY;
+
       // Register abort controller so the FAB Stop button can cancel uploads
       const controller = new AbortController();
       store.setCancelFn(() => controller.abort());
+
+      // Acquire Screen Wake Lock to prevent the device sleeping mid-upload
+      // (critical on mobile — OS kills background XHR when screen turns off)
+      let wakeLock: WakeLockSentinel | null = null;
+      try {
+        if (typeof navigator !== "undefined" && "wakeLock" in navigator) {
+          wakeLock = await (navigator as any).wakeLock.request("screen");
+        }
+      } catch { /* Wake Lock not supported or denied — continue without it */ }
 
       // 2. Fetch ALL signatures upfront in parallel (fast — just JSON) ────────
       const signatures = await Promise.all(
@@ -220,7 +261,8 @@ export default function AdminUploadPage() {
           const seg = segments[i];
           const sign = signatures[i];
 
-          segResults[i] = await uploadToCloudinary(seg.blob, sign, (frac) => {
+          // uploadWithRetry: up to 3 retries on network error (mobile drops)
+          segResults[i] = await uploadWithRetry(seg.blob, sign, (frac) => {
             segLoaded[i] = frac * seg.sizeBytes;
             computeStats();
           }, controller.signal);
@@ -231,8 +273,11 @@ export default function AdminUploadPage() {
         }
       }
 
-      // Launch CONCURRENCY workers in parallel
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, segments.length) }, worker));
+      // Launch workers (mobile: 1, desktop: 3)
+      await Promise.all(Array.from({ length: Math.min(concurrency, segments.length) }, worker));
+
+      // Release Wake Lock — upload done
+      wakeLock?.release().catch(() => {});
 
       store.setFinalizing();
 
@@ -273,6 +318,8 @@ export default function AdminUploadPage() {
       if (fileRef.current) fileRef.current.value = "";
 
     } catch (err: any) {
+      // Release Wake Lock on error too
+      try { (globalThis as any)._wakeLock?.release(); } catch { /**/ }
       const msg = err?.name === "AbortError" ? "Upload cancelled." : (err.message || "Upload failed");
       store.setError(msg);
       store.setCancelFn(null);
