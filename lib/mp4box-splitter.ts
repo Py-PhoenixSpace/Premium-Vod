@@ -1,16 +1,22 @@
 "use client";
 /**
- * lib/mp4box-splitter.ts
+ * lib/mp4box-splitter.ts — Mobile-safe MP4/MOV splitter using MP4Box.js
  *
- * Mobile-safe video splitter using MP4Box.js.
- * Reads the file in 8 MB streaming chunks — peak heap usage ~30 MB
- * regardless of total file size, enabling 5 GB+ uploads on iPhone.
+ * Algorithm:
+ *  1. Feed entire file in 8 MB chunks via FileReader (peak RAM ~30 MB)
+ *  2. MP4Box fires onReady() once the moov atom is parsed
+ *  3. MP4Box fires onSamples() with decoded frame batches
+ *  4. Accumulate samples; at each keyframe boundary ≥ SEGMENT_TARGET bytes,
+ *     flush into a standalone MP4 Blob via addTrack/addSample/writeFile
+ *  5. Flush remaining samples at EOF
  *
- * Supported: MP4, MOV (H.264 / HEVC / ProRes), M4V, HEIF  
- * NOT supported: MKV, AVI, WebM → caller falls back to ffmpeg.wasm
+ * Bug fixes in this version vs previous:
+ *  - feedNext() no longer breaks after the first post-ready chunk.
+ *    Previously only 1 chunk was fed, so most of the file was never parsed.
+ *  - Removed isFlushing guard from onSamples() that silently dropped samples.
+ *  - Uses isoFile.writeFile() for serialisation instead of DataStream.
  */
 
-// mp4box has no default export — use namespace import to access createFile() and DataStream
 import * as MP4Box from "mp4box";
 import type { MP4Info, MP4MediaTrack, MP4Sample } from "mp4box";
 import {
@@ -20,39 +26,22 @@ import {
   type SplitSegment,
 } from "./video-splitter-shared";
 
-const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB per FileReader slice
+const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function readSlice(file: File, start: number, end: number): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
     fr.onload  = () => resolve(fr.result as ArrayBuffer);
-    fr.onerror = () => reject(new Error("FileReader error reading video chunk"));
+    fr.onerror = () => reject(new Error("FileReader slice error"));
     fr.readAsArrayBuffer(file.slice(start, end));
   });
 }
 
 /**
- * Serialise an ISOFile to an ArrayBuffer using MP4Box's DataStream.
- * DataStream is not exported publicly by mp4box but is accessible as a
- * property on the MP4Box object itself.
- */
-function isoFileToBuffer(isoFile: ReturnType<typeof MP4Box.createFile>): ArrayBuffer {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const DS = (MP4Box as any).DataStream;
-  const ds = new DS(undefined, 0, DS.BIG_ENDIAN);
-  (isoFile as any).write(ds);
-  return ds.buffer as ArrayBuffer;
-}
-
-/**
- * Build a standalone MP4 Blob from collected video (+optional audio) samples.
- *
- * Key: we pass `sample.description` directly into addTrack() — MP4Box copies
- * the codec-specific SampleEntry box (avcC for H.264, hvcC for HEVC, esds
- * for AAC) from the input file into the new output file, preserving full
- * decoder compatibility.
+ * Build a standalone MP4 Blob from accumulated video (+ optional audio) samples.
+ * Uses MP4Box's addTrack/addSample/writeFile API — no external DataStream needed.
  */
 function buildSegmentBlob(
   videoTrack:   MP4MediaTrack,
@@ -63,31 +52,30 @@ function buildSegmentBlob(
   if (videoSamples.length === 0) return new Blob([], { type: "video/mp4" });
 
   const out = MP4Box.createFile();
+  const oa = out as any;
 
-  // ── Video track ────────────────────────────────────────────────────────────
-  const vtid = (out as any).addTrack({
+  // ── Video track ──
+  const vtid = oa.addTrack({
     type:        "video",
     timescale:   videoTrack.timescale,
     width:       videoTrack.video?.width  ?? 1920,
     height:      videoTrack.video?.height ?? 1080,
-    // Pass the codec description box directly — works for H.264, HEVC, ProRes
     description: videoSamples[0].description,
   });
-
   const vBase = videoSamples[0].dts;
   for (const s of videoSamples) {
-    (out as any).addSample(vtid, s.data, {
-      duration:    s.duration,
-      dts:         s.dts - vBase,
-      cts:         s.cts - vBase,
-      is_sync:     s.is_sync,
+    oa.addSample(vtid, s.data, {
+      duration: s.duration,
+      dts:      s.dts - vBase,
+      cts:      s.cts - vBase,
+      is_sync:  s.is_sync,
       description: s.description,
     });
   }
 
-  // ── Audio track (optional — included when available) ──────────────────────
+  // ── Audio track (optional) ──
   if (audioTrack && audioSamples.length > 0) {
-    const atid = (out as any).addTrack({
+    const atid = oa.addTrack({
       type:          "audio",
       timescale:     audioTrack.timescale,
       channel_count: audioTrack.audio?.channel_count ?? 2,
@@ -95,20 +83,21 @@ function buildSegmentBlob(
       samplesize:    audioTrack.audio?.sample_size   ?? 16,
       description:   audioSamples[0].description,
     });
-
     const aBase = audioSamples[0].dts;
     for (const s of audioSamples) {
-      (out as any).addSample(atid, s.data, {
-        duration:    s.duration,
-        dts:         s.dts - aBase,
-        cts:         s.cts - aBase,
-        is_sync:     s.is_sync,
+      oa.addSample(atid, s.data, {
+        duration: s.duration,
+        dts:      s.dts - aBase,
+        cts:      s.cts - aBase,
+        is_sync:  s.is_sync,
         description: s.description,
       });
     }
   }
 
-  return new Blob([isoFileToBuffer(out)], { type: "video/mp4" });
+  // writeFile() is the public ISOFile method that returns Uint8Array
+  const bytes: Uint8Array = oa.writeFile();
+  return new Blob([bytes as unknown as BlobPart], { type: "video/mp4" });
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -128,180 +117,118 @@ export async function splitVideoFileMobile(
     let videoId = -1;
     let audioId = -1;
 
-    // Per-segment sample buffers
-    const videoSamples: MP4Sample[] = [];
-    const audioSamples: MP4Sample[] = [];
+    // Accumulate samples for the current segment
+    const vSamples: MP4Sample[] = [];
+    const aSamples: MP4Sample[] = [];
     let videoBytes = 0;
+    let lastVNum   = 0;
+    let lastANum   = 0;
 
-    let readOffset    = 0;
-    let isReady       = false;
-    let isFlushing    = false;
-    const estimatedTotal = Math.max(1, Math.ceil(file.size / SEGMENT_TARGET));
+    const estimated = Math.max(1, Math.ceil(file.size / SEGMENT_TARGET));
 
-    let lastVideoSampleNum = 0;
-    let lastAudioSampleNum = 0;
-
-    // ── Flush current samples into a segment ──────────────────────────────────
-    async function flushSegment(): Promise<void> {
-      if (videoSamples.length === 0 || isFlushing) return;
-      isFlushing = true;
-
-      const segIdx = segments.length;
-      onProgress?.({
-        phase: "reading", segmentsDone: segIdx, totalSegments: estimatedTotal,
-        message: `Packaging segment ${segIdx + 1}…`,
-      });
-
+    // ── Flush current samples into a Blob segment ─────────────────────────────
+    async function flushSegment() {
+      if (vSamples.length === 0) return;
+      const idx = segments.length;
+      onProgress?.({ phase: "reading", segmentsDone: idx, totalSegments: estimated,
+        message: `Packaging segment ${idx + 1}…` });
       try {
-        const blob = buildSegmentBlob(
-          videoTrack!, audioTrack,
-          [...videoSamples], [...audioSamples],
-        );
+        const blob     = buildSegmentBlob(videoTrack!, audioTrack, [...vSamples], [...aSamples]);
         const duration = await getVideoDuration(blob);
-        segments.push({ index: segIdx, blob, duration, sizeBytes: blob.size });
+        segments.push({ index: idx, blob, duration, sizeBytes: blob.size });
       } catch (e) {
-        // On build failure: store a best-effort Blob and continue
-        console.warn("Segment build error:", e);
+        console.error("Segment build error:", e);
       }
-
-      // Release MP4Box internal memory for processed samples
-      if (videoId >= 0) isoFile.releaseUsedSamples(videoId, lastVideoSampleNum);
-      if (audioId >= 0 && lastAudioSampleNum > 0) {
-        isoFile.releaseUsedSamples(audioId, lastAudioSampleNum);
-      }
-
-      videoSamples.length = 0;
-      audioSamples.length = 0;
+      // Release MP4Box internal memory
+      if (videoId >= 0) isoFile.releaseUsedSamples(videoId, lastVNum);
+      if (audioId >= 0 && lastANum > 0) isoFile.releaseUsedSamples(audioId, lastANum);
+      vSamples.length = 0;
+      aSamples.length = 0;
       videoBytes = 0;
-      isFlushing = false;
     }
 
-    // ── onReady: moov atom parsed ─────────────────────────────────────────────
+    // ── onReady: moov parsed ──────────────────────────────────────────────────
     isoFile.onReady = (info: MP4Info) => {
       videoTrack = info.videoTracks[0] ?? null;
       audioTrack = info.audioTracks[0] ?? null;
-
       if (!videoTrack) {
-        reject(new Error("No video track found. Please check the file format."));
+        reject(new Error("No video track found in this file."));
         return;
       }
-
       videoId = videoTrack.id;
       isoFile.setExtractionOptions(videoId, null, { nbSamples: 200 });
-
       if (audioTrack) {
         audioId = audioTrack.id;
         isoFile.setExtractionOptions(audioId, null, { nbSamples: 200 });
       }
-
-      isReady = true;
       isoFile.start();
-      feedNext(); // resume feeding remaining chunks
+      // Note: feedNext() continues automatically — no need to call it here
     };
 
-    // ── onSamples: frames arrive ──────────────────────────────────────────────
+    // ── onSamples: frame batches arrive ──────────────────────────────────────
+    // Called synchronously by MP4Box inside appendBuffer().
+    // Declared async only to allow `await flushSegment()` at boundaries.
+    // Sample accumulation (push) runs synchronously before any await.
     isoFile.onSamples = async (id: number, _u: unknown, samples: MP4Sample[]) => {
-      if (signal?.aborted) { reject(new DOMException("Upload cancelled", "AbortError")); return; }
-      if (isFlushing) return; // will retry on next batch
-
+      if (signal?.aborted) { reject(new DOMException("Cancelled", "AbortError")); return; }
       if (id === videoId) {
         for (const s of samples) {
-          // Flush at a keyframe boundary once we've reached the target size
-          if (s.is_sync && videoBytes >= SEGMENT_TARGET && videoSamples.length > 0) {
+          if (s.is_sync && videoBytes >= SEGMENT_TARGET && vSamples.length > 0) {
             await flushSegment();
-            onProgress?.({
-              phase: "splitting",
-              segmentsDone: segments.length,
-              totalSegments: estimatedTotal,
-              message: `Split ${segments.length} of ~${estimatedTotal} segments…`,
-            });
+            onProgress?.({ phase: "splitting", segmentsDone: segments.length,
+              totalSegments: estimated, message: `Split ${segments.length} of ~${estimated}…` });
           }
-          videoSamples.push(s);
+          vSamples.push(s);
           videoBytes += s.size;
-          lastVideoSampleNum = s.number;
+          lastVNum = s.number;
         }
       } else if (id === audioId) {
         for (const s of samples) {
-          audioSamples.push(s);
-          lastAudioSampleNum = s.number;
+          aSamples.push(s);
+          lastANum = s.number;
         }
       }
     };
 
-    // ── onError ───────────────────────────────────────────────────────────────
     isoFile.onError = (e: string) => {
-      reject(new Error(
-        `MP4Box parsing failed: ${e}. ` +
-        `The file may be corrupted or in an unsupported format (try MP4 or MOV).`
-      ));
+      reject(new Error(`MP4Box error: ${e}`));
     };
 
-    // ── Feed file in 8 MB chunks ──────────────────────────────────────────────
-    let feeding = false;
+    // ── Feed file in 8 MB chunks — all chunks, no early break ────────────────
+    (async () => {
+      let offset = 0;
+      while (offset < file.size) {
+        if (signal?.aborted) { reject(new DOMException("Cancelled", "AbortError")); return; }
 
-    async function feedNext() {
-      if (feeding) return;
-      feeding = true;
-
-      while (readOffset < file.size) {
-        if (signal?.aborted) {
-          reject(new DOMException("Upload cancelled", "AbortError"));
-          return;
-        }
-
-        const end   = Math.min(readOffset + CHUNK_SIZE, file.size);
+        const end   = Math.min(offset + CHUNK_SIZE, file.size);
         const isEof = end >= file.size;
 
-        if (!isReady) {
-          onProgress?.({
-            phase: "loading", segmentsDone: 0, totalSegments: estimatedTotal,
-            message: "Analysing video structure…",
-          });
-        }
+        onProgress?.({ phase: "splitting", segmentsDone: segments.length,
+          totalSegments: estimated, message: "Analysing video structure…" });
 
         let raw: ArrayBuffer;
-        try {
-          raw = await readSlice(file, readOffset, end);
-        } catch (err) {
-          reject(err);
-          return;
-        }
+        try { raw = await readSlice(file, offset, end); }
+        catch (err) { reject(err); return; }
 
-        // MP4Box requires a `fileStart` property on each buffer
-        (raw as any).fileStart = readOffset;
-        readOffset = end;
-
+        (raw as any).fileStart = offset;
+        offset = end;
         isoFile.appendBuffer(raw as any);
 
         if (isEof) {
           isoFile.flush();
-
-          // Flush the final remaining samples
+          // Give any pending async onSamples continuations a tick to land
+          await new Promise(r => setTimeout(r, 10));
           await flushSegment();
 
           if (segments.length === 0) {
-            reject(new Error("No segments produced. The file may be unsupported."));
+            reject(new Error("No segments produced. The file may be in an unsupported format."));
             return;
           }
-
-          onProgress?.({
-            phase: "reading",
-            segmentsDone: segments.length,
-            totalSegments: segments.length,
-            message: `Prepared ${segments.length} segment${segments.length > 1 ? "s" : ""}.`,
-          });
-
+          onProgress?.({ phase: "reading", segmentsDone: segments.length,
+            totalSegments: segments.length, message: `Ready: ${segments.length} segment(s).` });
           resolve(segments);
-          return;
         }
-
-        // Once ready, onSamples drives the loop; stop feeding until next batch
-        if (isReady) break;
       }
-
-      feeding = false;
-    }
-
-    feedNext().catch(reject);
+    })().catch(reject);
   });
 }
