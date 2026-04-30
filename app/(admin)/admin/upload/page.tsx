@@ -347,7 +347,7 @@ export default function AdminUploadPage() {
           Upload <span className="brand-gold-text">Media</span>
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Videos over 95 MB are automatically split into segments and uploaded separately.
+          MP4 &amp; MOV files up to <strong>5 GB</strong> are supported on all devices — large files are split and uploaded automatically. MKV / AVI / WebM supported on desktop up to 3 GB.
         </p>
       </div>
 
@@ -649,10 +649,10 @@ export default function AdminUploadPage() {
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 flex items-start gap-2.5">
               <span className="text-blue-400 text-base shrink-0 mt-0.5">ℹ</span>
               <div>
-                <p className="text-xs font-semibold text-blue-300">Large file detected</p>
+                <p className="text-xs font-semibold text-blue-300">Large file detected — auto-split enabled</p>
                 <p className="text-[11px] text-blue-200/70 mt-0.5">
-                  {formatBytes(file?.size ?? 0)} will be split into segments automatically.
-                  On mobile (iPhone / Android): up to <strong>5 GB</strong> supported via streaming split.
+                  <strong>{formatBytes(file?.size ?? 0)}</strong> will be split into ~90 MB segments and uploaded in parallel.
+                  MP4 &amp; MOV files are supported up to <strong>5 GB</strong> on all devices (mobile + desktop).
                   Keep your screen on and stay on this tab during the upload.
                 </p>
               </div>
