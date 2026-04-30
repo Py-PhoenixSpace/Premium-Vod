@@ -158,10 +158,14 @@ async function splitVideoFileFFmpeg(
 /**
  * Split a video File into ≤90 MB segments.
  *
- * Automatically routes to the correct splitter:
- *  - Mobile + MP4/MOV → MP4Box.js (streaming, 5 GB safe)
- *  - Desktop / MKV    → ffmpeg.wasm (up to 3 GB)
- *  - Small file       → returned as-is
+ * Routing:
+ *  1. File ≤ 95 MB           → return as-is (no split needed)
+ *  2. MP4 / MOV / M4V / HEIF → MP4Box.js streaming splitter
+ *                               Works on BOTH mobile AND desktop.
+ *                               No SharedArrayBuffer, no WASM heap, no COEP needed.
+ *                               Supports up to 5 GB.
+ *  3. MKV / AVI / WebM       → ffmpeg.wasm (desktop only, up to 3 GB)
+ *                               Requires cross-origin isolation (COEP).
  */
 export async function splitVideoFile(
   file: File,
@@ -177,21 +181,33 @@ export async function splitVideoFile(
 
   const mobile = isMobileDevice();
 
-  // ── Size guard ───────────────────────────────────────────────────────────
-  const limit = mobile ? MAX_SPLITTABLE_MOBILE : MAX_SPLITTABLE;
-  if (file.size > limit) {
-    throw new Error(
-      mobile
-        ? `File is too large for mobile upload (max 5 GB, got ${(file.size / 1e9).toFixed(1)} GB).`
-        : `File is too large for desktop upload (max 3 GB, got ${(file.size / 1e9).toFixed(1)} GB).`
-    );
-  }
-
-  // ── Mobile + MP4/MOV: use MP4Box.js streaming splitter ──────────────────
-  if (mobile && isMp4Compatible(file)) {
+  // ── MP4 / MOV / M4V / HEIF — use MP4Box.js on ALL devices ───────────────
+  // MP4Box reads in 8 MB chunks: peak RAM ~30 MB, supports up to 5 GB.
+  // No SharedArrayBuffer required — works without any COOP/COEP headers.
+  if (isMp4Compatible(file)) {
+    if (file.size > MAX_SPLITTABLE_MOBILE) {
+      throw new Error(
+        `File is too large (max 5 GB, got ${(file.size / 1e9).toFixed(1)} GB). ` +
+        `Please trim the video or compress it before uploading.`
+      );
+    }
     return splitVideoFileMobile(file, onProgress, signal);
   }
 
-  // ── Desktop / unsupported format: ffmpeg.wasm ────────────────────────────
+  // ── Non-MP4 formats (MKV, AVI, WebM) — ffmpeg.wasm, desktop only ────────
+  if (mobile) {
+    throw new Error(
+      "MKV, AVI, and WebM files are not supported on mobile. " +
+      "Please convert to MP4 first, then upload."
+    );
+  }
+
+  if (file.size > MAX_SPLITTABLE) {
+    throw new Error(
+      `File is too large for desktop upload (max 3 GB, got ${(file.size / 1e9).toFixed(1)} GB).`
+    );
+  }
+
   return splitVideoFileFFmpeg(file, onProgress);
 }
+
