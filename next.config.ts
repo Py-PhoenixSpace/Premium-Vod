@@ -20,8 +20,23 @@ const nextConfig: NextConfig = {
     },
   },
   // Next.js 16 uses Turbopack by default — empty config silences the warning.
-  // COOP/COEP headers for ffmpeg.wasm are handled by middleware.ts instead.
   turbopack: {},
+
+  // Belt-and-suspenders COOP/COEP fallback for ffmpeg.wasm SharedArrayBuffer.
+  // The primary source is middleware.ts; this static config ensures headers are
+  // present even on edge deployments where middleware may be bypassed.
+  async headers() {
+    return [
+      {
+        source: "/admin/upload",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy",   value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy",  value: "credentialless" },
+          { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
