@@ -11,7 +11,8 @@ import {
 import type { MediaType, VideoCategory } from "@/types";
 import {
   splitVideoFile, SPLIT_THRESHOLD,
-  MAX_SPLITTABLE_MOBILE,
+  MAX_SPLITTABLE, MAX_SPLITTABLE_MOBILE,
+  isMobileDevice,
   type SplitSegment, type SplitProgress,
 } from "@/lib/video-splitter";
 import { useUploadStore } from "@/lib/stores/upload-store";
@@ -48,7 +49,8 @@ async function uploadWithRetry(
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const MAX_FILE_SIZE = 3 * 1024 * 1024 * 1024; // 3 GB (WASM practical limit)
+// Mobile uses MP4Box.js streaming (5 GB safe); desktop uses ffmpeg.wasm (3 GB).
+const MAX_FILE_SIZE = isMobileDevice() ? MAX_SPLITTABLE_MOBILE : MAX_SPLITTABLE;
 
 function formatBytes(b: number) {
   if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(2)} GB`;
@@ -165,13 +167,8 @@ export default function AdminUploadPage() {
   useEffect(() => { const t = setTimeout(() => checkDuplicate(title), 600); return () => clearTimeout(t); }, [title, checkDuplicate]);
   useEffect(() => { setFile(null); if (fileRef.current) fileRef.current.value = ""; }, [mediaType]);
 
-  const isLargeVideo    = file && mediaType === "video" && file.size > SPLIT_THRESHOLD;
-  const tooBig          = file && file.size > MAX_FILE_SIZE;
-  // Soft warning for mobile devices with files > 800 MB (may work on modern iPhones, may crash on older ones)
-  const isMobileLargeWarning = typeof navigator !== "undefined"
-    && /Mobi|Android/i.test(navigator.userAgent)
-    && !!file && mediaType === "video"
-    && file.size > MAX_SPLITTABLE_MOBILE;
+  const isLargeVideo = file && mediaType === "video" && file.size > SPLIT_THRESHOLD;
+  const tooBig       = file && file.size > MAX_FILE_SIZE;
 
   // ── Main upload handler — PARALLEL uploads ───────────────────────────────
   async function handleUpload(e: React.FormEvent) {
@@ -187,10 +184,13 @@ export default function AdminUploadPage() {
 
       if (mediaType === "video" && file.size > SPLIT_THRESHOLD) {
         store.setSplitting(0, 1);
+        // AbortSignal passed so user cancel also stops mid-split on mobile
+        const controller2 = new AbortController();
+        store.setCancelFn(() => controller2.abort());
         segments = await splitVideoFile(file, (p) => {
           setSplitProg(p);
           store.setSplitting(p.segmentsDone, p.totalSegments);
-        });
+        }, controller2.signal);
       } else {
         segments = [{ index: 0, blob: file, duration: 0, sizeBytes: file.size }];
       }
@@ -644,16 +644,16 @@ export default function AdminUploadPage() {
             </div>
           )}
 
-          {/* Mobile large-file advisory — non-blocking, user can still proceed */}
-          {isMobileLargeWarning && !busy && (
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 flex items-start gap-2.5">
-              <span className="text-amber-400 text-base shrink-0 mt-0.5">⚠</span>
+          {/* Mobile large-file info — MP4Box.js supports up to 5 GB on mobile */}
+          {isLargeVideo && !busy && (
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 flex items-start gap-2.5">
+              <span className="text-blue-400 text-base shrink-0 mt-0.5">ℹ</span>
               <div>
-                <p className="text-xs font-semibold text-amber-300">Large file on mobile</p>
-                <p className="text-[11px] text-amber-200/70 mt-0.5">
-                  {formatBytes(file?.size ?? 0)} detected. This will work on iPhone 12+ (4 GB RAM) but
-                  may crash older iPhones. Keep your screen on during the upload.
-                  For best results, use a desktop browser or WiFi.
+                <p className="text-xs font-semibold text-blue-300">Large file detected</p>
+                <p className="text-[11px] text-blue-200/70 mt-0.5">
+                  {formatBytes(file?.size ?? 0)} will be split into segments automatically.
+                  On mobile (iPhone / Android): up to <strong>5 GB</strong> supported via streaming split.
+                  Keep your screen on and stay on this tab during the upload.
                 </p>
               </div>
             </div>
