@@ -55,7 +55,13 @@ export default function SegmentedVideoPlayer({
   const [buffering, setBuffering]       = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [isMobile]                      = useState(() => isIOS() || (typeof navigator !== "undefined" && /Mobi|Android/i.test(navigator.userAgent)));
+  const [isMobile, setIsMobile]         = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setIsMobile(isIOS() || /Mobi|Android/i.test(navigator.userAgent));
+    }
+  }, []);
 
   const [actualDurations, setActualDurations] = useState<number[]>(
     () => segments.map(s => s.duration || 0)
@@ -314,14 +320,6 @@ export default function SegmentedVideoPlayer({
     setGlobalTime(clamped);
   }
 
-  /**
-   * Fullscreen toggle — iOS/Android compatible.
-   *
-   * iOS Safari does NOT support requestFullscreen() on <div> elements.
-   * The only way to go fullscreen on iOS is webkitEnterFullscreen() on a
-   * <video> element. All other browsers use the standard Fullscreen API on
-   * the container div.
-   */
   function toggleFullscreen() {
     const doc = document as any;
     const isFs = !!(
@@ -335,9 +333,9 @@ export default function SegmentedVideoPlayer({
       const activeVid = getActive() as any;
       if (!activeVid) return;
       if (isFs || activeVid.webkitDisplayingFullscreen) {
-        activeVid.webkitExitFullscreen?.();
+        if (activeVid.webkitExitFullscreen) activeVid.webkitExitFullscreen();
       } else {
-        activeVid.webkitEnterFullscreen?.();
+        if (activeVid.webkitEnterFullscreen) activeVid.webkitEnterFullscreen();
       }
       return;
     }
@@ -346,11 +344,11 @@ export default function SegmentedVideoPlayer({
     const el = containerRef.current as any;
     if (!el) return;
     if (isFs) {
-      (document.exitFullscreen?.() ||
-       doc.webkitExitFullscreen?.());
+      if (document.exitFullscreen) document.exitFullscreen();
+      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
     } else {
-      (el.requestFullscreen?.() ||
-       el.webkitRequestFullscreen?.());
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
     }
   }
 
@@ -395,7 +393,7 @@ export default function SegmentedVideoPlayer({
         style={{ zIndex: activeRef === "A" ? 10 : 1, opacity: activeRef === "A" ? 1 : 0 }}
         playsInline
         webkit-playsinline="true"
-        preload="auto"
+        preload="metadata"
       />
       <video ref={videoB}
         className="absolute inset-0 w-full h-full object-contain"
@@ -417,13 +415,12 @@ export default function SegmentedVideoPlayer({
 
       {/* Controls overlay */}
       <div
-        className="absolute inset-0 flex flex-col justify-end transition-opacity duration-300"
+        className="absolute inset-0 flex flex-col justify-end transition-opacity duration-300 pointer-events-none"
         style={{ zIndex: 30, opacity: showControls || !playing ? 1 : 0 }}
-        onClick={e => e.stopPropagation()}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
 
-        <div className="relative px-4 pb-4 space-y-2">
+        <div className="relative px-4 pb-4 space-y-2 pointer-events-auto" onClick={e => e.stopPropagation()}>
           {title && <p className="text-white text-sm font-medium truncate opacity-90 drop-shadow">{title}</p>}
 
           {/* Progress bar — tall touch target on mobile */}
