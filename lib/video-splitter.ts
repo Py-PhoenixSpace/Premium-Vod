@@ -15,7 +15,7 @@
  */
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { fetchFile } from "@ffmpeg/util"; // toBlobURL removed — files self-hosted in /public/ffmpeg/
 
 // ── Shared types / constants / helpers (re-exported for callers) ──────────────
 export {
@@ -45,21 +45,26 @@ import { splitVideoFileMobile } from "./mp4box-splitter";
 import type { SplitSegment, SplitProgress } from "./video-splitter-shared";
 
 // ─── ffmpeg.wasm setup ────────────────────────────────────────────────────────
-const FFMPEG_CORE_VERSION = "0.12.6";
-const CDN = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
+// Files are self-hosted in /public/ffmpeg/ (downloaded by scripts/download-ffmpeg.mjs).
+// Same-origin paths eliminate blob URL revocation (ERR_FILE_NOT_FOUND),
+// CORS preflight, and COEP require-corp blocking entirely.
+const FFMPEG_CORE_JS   = "/ffmpeg/ffmpeg-core.js";
+const FFMPEG_CORE_WASM = "/ffmpeg/ffmpeg-core.wasm";
 
-let _ffmpeg: FFmpeg | null = null;
-let _loaded = false;
+// Store on globalThis so the singleton survives Next.js HMR module resets.
+// Without this, each hot reload creates a new FFmpeg instance causing
+// duplicate initialisation and stale blob URL errors in development.
+const G = globalThis as Record<string, unknown>;
 
 async function getFFmpeg(): Promise<FFmpeg> {
-  if (_ffmpeg && _loaded) return _ffmpeg;
-  _ffmpeg = new FFmpeg();
-  await _ffmpeg.load({
-    coreURL: await toBlobURL(`${CDN}/ffmpeg-core.js`,   "text/javascript"),
-    wasmURL: await toBlobURL(`${CDN}/ffmpeg-core.wasm`, "application/wasm"),
-  });
-  _loaded = true;
-  return _ffmpeg;
+  if (G.__ffmpeg_instance__ && G.__ffmpeg_loaded__) {
+    return G.__ffmpeg_instance__ as FFmpeg;
+  }
+  const ffmpeg = new FFmpeg();
+  await ffmpeg.load({ coreURL: FFMPEG_CORE_JS, wasmURL: FFMPEG_CORE_WASM });
+  G.__ffmpeg_instance__ = ffmpeg;
+  G.__ffmpeg_loaded__   = true;
+  return ffmpeg;
 }
 
 // ─── ffmpeg.wasm helpers ──────────────────────────────────────────────────────
