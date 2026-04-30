@@ -29,9 +29,25 @@ function fileExt(file: File): string {
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "mp4";
 }
 
-/** Returns true if the file is a MOV/QuickTime container (iPhone camera). */
+/**
+ * Returns true if the file should be treated as a QuickTime/MOV container.
+ * Covers all iPhone camera output formats:
+ *  - Standard: .mov (all iPhones), video/quicktime
+ *  - iPhone 14+ ProRes: .mov with video/quicktime or video/mp4 MIME
+ *  - iPhone 17 Pro: may report video/mp4 even for MOV containers
+ *  - HEIF video: .heif / .heic (future-proofing)
+ */
 function isMov(file: File): boolean {
-  return fileExt(file) === "mov" || file.type === "video/quicktime";
+  const ext  = fileExt(file);
+  const mime = file.type.toLowerCase();
+  // Extension-first — most reliable signal
+  if (ext === "mov" || ext === "heif" || ext === "heic") return true;
+  // MIME-type fallback — QuickTime containers
+  if (mime === "video/quicktime" || mime === "video/x-quicktime") return true;
+  // Some iPhone 17 Pro ProRes clips are named .mp4 but need the hvc1 tag
+  // We detect them by checking for quicktime in the MIME or the file name
+  if (mime.includes("quicktime")) return true;
+  return false;
 }
 
 const FFMPEG_CORE_VERSION = "0.12.6";

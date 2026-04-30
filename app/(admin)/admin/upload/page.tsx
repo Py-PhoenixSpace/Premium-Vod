@@ -474,7 +474,9 @@ export default function AdminUploadPage() {
             <input ref={fileRef} type="file"
               accept={mediaType === "image"
                 ? "image/*"
-                : "video/*,video/quicktime,.mov,.hevc,.mp4,.mkv,.webm"}
+                // iPhone 17 Pro: ProRes (.mov), HEVC (.mov/.mp4), HEIF video (.heif/.heic)
+                // Standard: MP4, MKV, WebM, MOV
+                : "video/*,video/quicktime,video/mp4,video/x-matroska,.mov,.hevc,.mp4,.mkv,.webm,.heif,.heic,.prores"}
               className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </div>
 
