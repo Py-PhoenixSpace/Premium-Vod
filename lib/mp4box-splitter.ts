@@ -10,7 +10,8 @@
  * NOT supported: MKV, AVI, WebM → caller falls back to ffmpeg.wasm
  */
 
-import MP4Box from "mp4box";
+// mp4box has no default export — use namespace import to access createFile() and DataStream
+import * as MP4Box from "mp4box";
 import type { MP4Info, MP4MediaTrack, MP4Sample } from "mp4box";
 import {
   SEGMENT_TARGET,

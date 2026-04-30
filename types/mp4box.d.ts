@@ -2,7 +2,8 @@
  * Minimal TypeScript declarations for the `mp4box` npm package.
  * MP4Box.js by GPAC — https://gpac.github.io/mp4box.js/
  *
- * Only the APIs used by lib/mp4box-splitter.ts are declared here.
+ * mp4box uses CommonJS exports (no default export).
+ * Import with:  import * as MP4Box from "mp4box"
  */
 declare module "mp4box" {
   // ── ArrayBuffer subtype that MP4Box requires ──────────────────────────────
@@ -112,4 +113,16 @@ declare module "mp4box" {
 
   /** Create a new ISOFile parser instance. */
   function createFile(): ISOFile;
+
+  /**
+   * DataStream — used to serialise an ISOFile to an ArrayBuffer.
+   * Accessed as (MP4Box as any).DataStream in production code because
+   * it's not exported in all bundle variants.
+   */
+  class DataStream {
+    static BIG_ENDIAN: boolean;
+    buffer: ArrayBuffer;
+    constructor(buffer?: ArrayBuffer, byteOffset?: number, endianness?: boolean);
+    write(obj: unknown): void;
+  }
 }
