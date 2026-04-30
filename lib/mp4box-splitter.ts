@@ -198,41 +198,37 @@ export async function splitVideoFileMobile(
       reject(new Error(`MP4Box error: ${e}`));
     };
 
-    // ── Feed file in 8 MB chunks — all chunks, no early break ────────────────
+    // ── Feed file using seek-based protocol (mp4box v2.3.0) ───────────────────
+    // appendBuffer() returns the next file position MP4Box needs data from.
+    // When getSample() can't find mdat bytes, MP4Box sets nextSeekPosition
+    // and returns it — we must seek to that position and re-feed from there.
     (async () => {
-      let offset = 0;
-      while (offset < file.size) {
+      let feedFrom = 0;      // Where to read the next chunk from
+      let iterations = 0;
+      const MAX_ITER = Math.ceil(file.size / CHUNK_SIZE) * 4 + 100;
+
+      while (feedFrom < file.size && iterations++ < MAX_ITER) {
         if (signal?.aborted) { reject(new DOMException("Cancelled", "AbortError")); return; }
 
-        const end   = Math.min(offset + CHUNK_SIZE, file.size);
+        const end   = Math.min(feedFrom + CHUNK_SIZE, file.size);
         const isEof = end >= file.size;
 
         onProgress?.({ phase: "splitting", segmentsDone: segments.length,
           totalSegments: estimated, message: "Analysing video structure…" });
 
         let raw: ArrayBuffer;
-        try { raw = await readSlice(file, offset, end); }
+        try { raw = await readSlice(file, feedFrom, end); }
         catch (err) { reject(err); return; }
 
-        // Pass last=true on the final chunk — triggers processSamples(true)
-        // which flushes any remaining samples through onSamples before resolving.
-        (raw as any).fileStart = offset;
-        offset = end;
-        isoFile.appendBuffer(raw as any, isEof);
+        (raw as any).fileStart = feedFrom;
+
+        // appendBuffer returns the next needed file position.
+        // Use it as feedFrom for the next iteration (seek-based protocol).
+        const nextPos = isoFile.appendBuffer(raw as any, isEof) as number | undefined;
 
         if (isEof) {
-          // Dump internal state to diagnose why onSamples never fires
-          const ia = isoFile as any;
-          console.log('[MP4Box] EOF state:', {
-            extractedTracksCount: ia.extractedTracks?.length,
-            sampleProcessingStarted: ia.sampleProcessingStarted,
-            hasMoov: !!ia.moov,
-            trak0samples: ia.moov?.traks?.[0]?.samples?.length,
-            trak0nextSample: ia.moov?.traks?.[0]?.nextSample,
-          });
           await new Promise(r => setTimeout(r, 20));
           await flushSegment();
-
           if (segments.length === 0) {
             reject(new Error("No segments produced. The file may be in an unsupported format."));
             return;
@@ -240,8 +236,17 @@ export async function splitVideoFileMobile(
           onProgress?.({ phase: "reading", segmentsDone: segments.length,
             totalSegments: segments.length, message: `Ready: ${segments.length} segment(s).` });
           resolve(segments);
+          return;
         }
+
+        // Respect MP4Box's seek request; fall back to sequential if no seek needed
+        feedFrom = (nextPos && nextPos > 0 && nextPos !== end) ? nextPos : end;
+      }
+
+      if (iterations >= MAX_ITER) {
+        reject(new Error("MP4Box seek loop exceeded maximum iterations — file may be malformed."));
       }
     })().catch(reject);
+
   });
 }
