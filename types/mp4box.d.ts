@@ -83,7 +83,7 @@ declare module "mp4box" {
      * Feed the next chunk of file data. The ArrayBuffer MUST have a
      * `fileStart` property set to its byte offset within the full file.
      */
-    appendBuffer(buffer: MP4ArrayBuffer): number;
+    appendBuffer(buffer: MP4ArrayBuffer, last?: boolean): number;
 
     /** Signal that all data has been fed (EOF). */
     flush(): void;

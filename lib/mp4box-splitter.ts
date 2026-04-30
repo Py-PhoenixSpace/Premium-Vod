@@ -95,9 +95,9 @@ function buildSegmentBlob(
     }
   }
 
-  // writeFile() is the public ISOFile method that returns Uint8Array
-  const bytes: Uint8Array = oa.writeFile();
-  return new Blob([bytes as unknown as BlobPart], { type: "video/mp4" });
+  // getBuffer() returns a DataStream; .buffer gives the ArrayBuffer
+  const stream = oa.getBuffer();
+  return new Blob([stream.buffer], { type: "video/mp4" });
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -210,14 +210,15 @@ export async function splitVideoFileMobile(
         try { raw = await readSlice(file, offset, end); }
         catch (err) { reject(err); return; }
 
+        // Pass last=true on the final chunk — triggers processSamples(true)
+        // which flushes any remaining samples through onSamples before resolving.
         (raw as any).fileStart = offset;
         offset = end;
-        isoFile.appendBuffer(raw as any);
+        isoFile.appendBuffer(raw as any, isEof);
 
         if (isEof) {
-          isoFile.flush();
-          // Give any pending async onSamples continuations a tick to land
-          await new Promise(r => setTimeout(r, 10));
+          // Give async onSamples continuations a tick to land
+          await new Promise(r => setTimeout(r, 20));
           await flushSegment();
 
           if (segments.length === 0) {
