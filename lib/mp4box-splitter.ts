@@ -221,7 +221,15 @@ export async function splitVideoFileMobile(
         isoFile.appendBuffer(raw as any, isEof);
 
         if (isEof) {
-          // Give async onSamples continuations a tick to land
+          // Dump internal state to diagnose why onSamples never fires
+          const ia = isoFile as any;
+          console.log('[MP4Box] EOF state:', {
+            extractedTracksCount: ia.extractedTracks?.length,
+            sampleProcessingStarted: ia.sampleProcessingStarted,
+            hasMoov: !!ia.moov,
+            trak0samples: ia.moov?.traks?.[0]?.samples?.length,
+            trak0nextSample: ia.moov?.traks?.[0]?.nextSample,
+          });
           await new Promise(r => setTimeout(r, 20));
           await flushSegment();
 
