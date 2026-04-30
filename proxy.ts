@@ -58,7 +58,19 @@ export function proxy(request: NextRequest) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
 
-    return NextResponse.next();
+    const res = NextResponse.next();
+
+    // ── COOP/COEP headers for ffmpeg.wasm on the admin upload page ─────────
+    // SharedArrayBuffer (required by ffmpeg.wasm) is only available when the
+    // page is cross-origin isolated. We set these headers ONLY on /admin/upload
+    // because COOP breaks OAuth popups and Stripe checkout on other pages.
+    if (pathname === "/admin/upload" || pathname.startsWith("/admin/upload/")) {
+      res.headers.set("Cross-Origin-Opener-Policy",   "same-origin");
+      res.headers.set("Cross-Origin-Embedder-Policy",  "require-corp");
+      res.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+    }
+
+    return res;
   } catch {
     // Fail-open — never block a request due to proxy error
     return NextResponse.next();
