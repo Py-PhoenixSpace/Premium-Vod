@@ -8,8 +8,8 @@
 // ─── Constants ─────────────────────────────────────────────────────────────
 export const SPLIT_THRESHOLD       = 95  * 1024 * 1024; // 95 MB
 export const SEGMENT_TARGET        = 90  * 1024 * 1024; // 90 MB per segment
-export const MAX_SPLITTABLE        = 3   * 1024 * 1024 * 1024; // 3 GB (ffmpeg.wasm desktop)
-export const MAX_SPLITTABLE_MOBILE = 5   * 1024 * 1024 * 1024; // 5 GB (MP4Box mobile)
+export const MAX_SPLITTABLE        = 3   * 1024 * 1024 * 1024; // 3 GB  (ffmpeg.wasm — MKV/AVI/WebM on desktop only)
+export const MAX_SPLITTABLE_MOBILE = 20  * 1024 * 1024 * 1024; // 20 GB (MP4Box parse-then-slice — RAM peak ~90 MB regardless of file size)
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 export interface SplitSegment {

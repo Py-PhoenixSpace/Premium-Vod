@@ -466,7 +466,7 @@ export default function AdminUploadPage() {
                   </div>
                   <p className="text-sm text-muted-foreground">Click to select {mediaType === "image" ? "image" : "video"} file</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    {mediaType === "image" ? "JPG, PNG, or WebP" : "MP4, MOV, M4V · Desktop: up to 5 GB · Mobile: up to 5 GB · Auto-split via MP4Box"}
+                    {mediaType === "image" ? "JPG, PNG, or WebP" : "MP4, MOV, M4V · Up to 20 GB · Auto-split via MP4Box (~90 MB RAM only)"}
                   </p>
                 </>
               )}
@@ -652,7 +652,7 @@ export default function AdminUploadPage() {
                 <p className="text-xs font-semibold text-blue-900 dark:text-white">Large file detected</p>
                 <p className="text-[11px] text-blue-800 dark:text-blue-100/80 mt-0.5">
                   {formatBytes(file?.size ?? 0)} will be split into segments automatically using{" "}
-                  <strong className="text-blue-900 dark:text-white">MP4Box</strong> — up to <strong className="text-blue-900 dark:text-white">5 GB</strong> on both desktop and mobile.
+                  <strong className="text-blue-900 dark:text-white">MP4Box</strong> — up to <strong className="text-blue-900 dark:text-white">20 GB</strong> on both desktop and mobile (~90 MB peak RAM regardless of file size).
                   Keep your screen on and stay on this tab during the upload.
                 </p>
               </div>
