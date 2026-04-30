@@ -17,7 +17,11 @@ import {
   RotateCcw,
   HardDrive,
   Trash2,
+  Pencil,
+  X,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 type FilterStatus = "all" | "published" | "processing" | "archived";
@@ -28,6 +32,17 @@ export default function AdminVideosPage() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [archiving, setArchiving] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  const [editingVideo, setEditingVideo] = useState<Video | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    title: "",
+    description: "",
+    category: "",
+    priceINR: 0,
+    priceUSD: 0,
+    isPremium: false,
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   useEffect(() => {
     async function fetchVideos() {
@@ -111,6 +126,54 @@ export default function AdminVideosPage() {
       toast.error(error.message || "Failed to delete item.");
     } finally {
       setDeleting(null);
+    }
+  }
+
+  function openEditModal(video: Video) {
+    setEditingVideo(video);
+    setEditFormData({
+      title: video.title || "",
+      description: video.description || "",
+      category: video.category || "educational",
+      priceINR: video.priceINR || 0,
+      priceUSD: video.priceUSD || 0,
+      isPremium: video.isPremium || false,
+    });
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingVideo) return;
+    
+    setIsSavingEdit(true);
+    try {
+      const res = await fetch("/api/video/edit", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoId: editingVideo.videoId,
+          ...editFormData,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to update video");
+      }
+
+      const { updates } = await res.json();
+      setVideos((prev) =>
+        prev.map((v) =>
+          v.videoId === editingVideo.videoId ? { ...v, ...updates } : v
+        )
+      );
+      toast.success("Video metadata updated successfully.");
+      setEditingVideo(null);
+    } catch (error: any) {
+      console.error("Edit save failed:", error);
+      toast.error(error.message || "Failed to save changes.");
+    } finally {
+      setIsSavingEdit(false);
     }
   }
 
@@ -296,6 +359,15 @@ export default function AdminVideosPage() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => openEditModal(video)}
+                        title="Edit metadata"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
                         onClick={() =>
                           toggleArchive(video.videoId, video.status)
                         }
@@ -441,6 +513,17 @@ export default function AdminVideosPage() {
                   variant="outline"
                   size="sm"
                   className="h-8 gap-1.5 text-xs"
+                  onClick={() => openEditModal(video)}
+                  title="Edit metadata"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Edit
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
                   onClick={() => toggleArchive(video.videoId, video.status)}
                   disabled={archiving === video.videoId || video.status === "processing"}
                   title={video.status === "archived" ? "Restore item" : "Archive item"}
@@ -475,6 +558,118 @@ export default function AdminVideosPage() {
           ))
         )}
       </div>
+
+      {/* Edit Modal Overlay */}
+      {editingVideo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <div className="bg-card w-full max-w-lg rounded-2xl border border-border shadow-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-4 border-b border-border/40 bg-muted/20">
+              <h2 className="font-bold text-lg">Edit Media Details</h2>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setEditingVideo(null)}
+                className="h-8 w-8 rounded-full hover:bg-muted"
+                disabled={isSavingEdit}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1">
+              <form id="edit-video-form" onSubmit={handleSaveEdit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="title">Title</Label>
+                  <Input
+                    id="title"
+                    value={editFormData.title}
+                    onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <textarea
+                    id="description"
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    value={editFormData.description}
+                    onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="category">Category</Label>
+                  <select
+                    id="category"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&>option]:bg-background [&>option]:text-foreground"
+                    value={editFormData.category}
+                    onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
+                  >
+                    <option value="educational">Educational</option>
+                    <option value="entertainment">Entertainment</option>
+                    <option value="featured">Featured</option>
+                    <option value="tutorial">Tutorial</option>
+                    <option value="exclusive">Exclusive</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="priceINR">Price (INR)</Label>
+                    <Input
+                      id="priceINR"
+                      type="number"
+                      min="0"
+                      value={editFormData.priceINR}
+                      onChange={(e) => setEditFormData({ ...editFormData, priceINR: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="priceUSD">Price (USD)</Label>
+                    <Input
+                      id="priceUSD"
+                      type="number"
+                      min="0"
+                      value={editFormData.priceUSD}
+                      onChange={(e) => setEditFormData({ ...editFormData, priceUSD: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pt-2">
+                  <input
+                    type="checkbox"
+                    id="isPremium"
+                    className="h-4 w-4 rounded border-input bg-transparent text-primary"
+                    checked={editFormData.isPremium}
+                    onChange={(e) => setEditFormData({ ...editFormData, isPremium: e.target.checked })}
+                  />
+                  <Label htmlFor="isPremium" className="cursor-pointer">Premium Content</Label>
+                </div>
+              </form>
+            </div>
+            <div className="p-4 border-t border-border/40 bg-muted/10 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditingVideo(null)}
+                disabled={isSavingEdit}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="edit-video-form"
+                disabled={isSavingEdit}
+                className="brand-gradient text-white shadow-lg shadow-primary/20 gap-2"
+              >
+                {isSavingEdit ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Pencil className="w-4 h-4" />
+                )}
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
