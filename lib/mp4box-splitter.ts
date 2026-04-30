@@ -128,18 +128,21 @@ export async function splitVideoFileMobile(
 
     // ── Flush current samples into a Blob segment ─────────────────────────────
     async function flushSegment() {
+      console.log('[MP4Box] flushSegment called, vSamples:', vSamples.length);
       if (vSamples.length === 0) return;
       const idx = segments.length;
       onProgress?.({ phase: "reading", segmentsDone: idx, totalSegments: estimated,
         message: `Packaging segment ${idx + 1}…` });
       try {
         const blob     = buildSegmentBlob(videoTrack!, audioTrack, [...vSamples], [...aSamples]);
+        console.log('[MP4Box] built blob size:', blob.size);
         const duration = await getVideoDuration(blob);
         segments.push({ index: idx, blob, duration, sizeBytes: blob.size });
       } catch (e) {
-        console.error("Segment build error:", e);
+        console.error('[MP4Box] Segment build error:', e);
+        reject(new Error(`Segment build failed: ${e}`));
+        return;
       }
-      // Release MP4Box internal memory
       if (videoId >= 0) isoFile.releaseUsedSamples(videoId, lastVNum);
       if (audioId >= 0 && lastANum > 0) isoFile.releaseUsedSamples(audioId, lastANum);
       vSamples.length = 0;
@@ -149,6 +152,7 @@ export async function splitVideoFileMobile(
 
     // ── onReady: moov parsed ──────────────────────────────────────────────────
     isoFile.onReady = (info: MP4Info) => {
+      console.log('[MP4Box] onReady fired, videoTracks:', info.videoTracks.length, 'audioTracks:', info.audioTracks.length);
       videoTrack = info.videoTracks[0] ?? null;
       audioTrack = info.audioTracks[0] ?? null;
       if (!videoTrack) {
@@ -162,7 +166,6 @@ export async function splitVideoFileMobile(
         isoFile.setExtractionOptions(audioId, null, { nbSamples: 200 });
       }
       isoFile.start();
-      // Note: feedNext() continues automatically — no need to call it here
     };
 
     // ── onSamples: frame batches arrive ──────────────────────────────────────
@@ -170,6 +173,7 @@ export async function splitVideoFileMobile(
     // Declared async only to allow `await flushSegment()` at boundaries.
     // Sample accumulation (push) runs synchronously before any await.
     isoFile.onSamples = async (id: number, _u: unknown, samples: MP4Sample[]) => {
+      console.log('[MP4Box] onSamples id:', id, 'videoId:', videoId, 'count:', samples.length);
       if (signal?.aborted) { reject(new DOMException("Cancelled", "AbortError")); return; }
       if (id === videoId) {
         for (const s of samples) {
