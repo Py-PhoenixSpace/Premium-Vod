@@ -347,7 +347,7 @@ export default function AdminUploadPage() {
           Upload <span className="brand-gold-text">Media</span>
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          MP4 &amp; MOV files up to <strong>5 GB</strong> are supported on all devices — large files are split and uploaded automatically. MKV / AVI / WebM supported on desktop up to 3 GB.
+          Videos over 95 MB are automatically split into segments and uploaded separately.
         </p>
       </div>
 
@@ -466,7 +466,7 @@ export default function AdminUploadPage() {
                   </div>
                   <p className="text-sm text-muted-foreground">Click to select {mediaType === "image" ? "image" : "video"} file</p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    {mediaType === "image" ? "JPG, PNG, or WebP" : "MP4, MOV, HEVC, MKV · Desktop: up to 3 GB · Mobile: up to 800 MB · Auto-segmented"}
+                    {mediaType === "image" ? "JPG, PNG, or WebP" : "MP4, MOV, M4V · Desktop: up to 5 GB · Mobile: up to 5 GB · Auto-split via MP4Box"}
                   </p>
                 </>
               )}
@@ -646,13 +646,13 @@ export default function AdminUploadPage() {
 
           {/* Mobile large-file info — MP4Box.js supports up to 5 GB on mobile */}
           {isLargeVideo && !busy && (
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 flex items-start gap-2.5">
-              <span className="text-blue-400 text-base shrink-0 mt-0.5">ℹ</span>
+            <div className="bg-blue-500/15 border border-blue-400/30 rounded-xl px-4 py-3 flex items-start gap-2.5">
+              <span className="text-blue-300 text-base shrink-0 mt-0.5">ℹ</span>
               <div>
-                <p className="text-xs font-semibold text-blue-300">Large file detected — auto-split enabled</p>
-                <p className="text-[11px] text-blue-200/70 mt-0.5">
-                  <strong>{formatBytes(file?.size ?? 0)}</strong> will be split into ~90 MB segments and uploaded in parallel.
-                  MP4 &amp; MOV files are supported up to <strong>5 GB</strong> on all devices (mobile + desktop).
+                <p className="text-xs font-semibold text-blue-900 dark:text-white">Large file detected</p>
+                <p className="text-[11px] text-blue-800 dark:text-blue-100/80 mt-0.5">
+                  {formatBytes(file?.size ?? 0)} will be split into segments automatically using{" "}
+                  <strong className="text-blue-900 dark:text-white">MP4Box</strong> — up to <strong className="text-blue-900 dark:text-white">5 GB</strong> on both desktop and mobile.
                   Keep your screen on and stay on this tab during the upload.
                 </p>
               </div>
