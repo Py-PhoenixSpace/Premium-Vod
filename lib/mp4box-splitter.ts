@@ -111,56 +111,68 @@ function buildSegmentBlob(
   if (vSamples.length === 0) return new Blob([], { type: "video/mp4" });
 
   const out = MP4Box.createFile();
-  const oa = out as any;
+  const oa  = out as any;
 
   // ── Video track ──
+  // MUST use the actual codec type (e.g. "avc1","hvc1") — NOT "video".
+  // BoxRegistry.sampleEntry["video"] doesn't exist → addTrack returns undefined → 1KB blob.
+  const vEntry = vSamples[0].description as any;
   const vtid = oa.addTrack({
-    type:        "video",
-    timescale:   videoTrack.timescale,
-    width:       videoTrack.video?.width  ?? 1920,
-    height:      videoTrack.video?.height ?? 1080,
-    description: vSamples[0].description,
+    type:      vEntry.type,           // "avc1", "hvc1", "hev1", etc.
+    timescale: videoTrack.timescale,
+    width:     videoTrack.video?.width  ?? 1920,
+    height:    videoTrack.video?.height ?? 1080,
   });
+  if (!vtid) throw new Error(`Unsupported video codec type: ${vEntry.type}`);
+
+  // Replace the blank stsd entry with the original one from the source file.
+  // This preserves codec-specific boxes (avcC, hvcC, colr, pasp, etc.) exactly.
+  const vTrakOut = oa.moov.traks[oa.moov.traks.length - 1];
+  vTrakOut.mdia.minf.stbl.stsd.entries[0] = vEntry;
+
   const vBase = vSamples[0].dts;
   for (const s of vSamples) {
     const sStart = s.offset - vDataStart;
     const sData  = vData.slice(sStart, sStart + s.size);
     oa.addSample(vtid, sData, {
-      duration:    s.duration,
-      dts:         s.dts - vBase,
-      cts:         s.cts - vBase,
-      is_sync:     s.is_sync,
-      description: s.description,
+      duration: s.duration,
+      dts:      s.dts - vBase,
+      cts:      s.cts - vBase,
+      is_sync:  s.is_sync,
     });
   }
 
   // ── Audio track ──
   if (audioTrack && aSamples.length > 0 && aData) {
+    const aEntry = aSamples[0].description as any;
     const atid = oa.addTrack({
-      type:          "audio",
+      type:          aEntry.type,       // "mp4a", "ac-3", "ec-3", etc.
       timescale:     audioTrack.timescale,
       channel_count: audioTrack.audio?.channel_count ?? 2,
       samplerate:    audioTrack.audio?.sample_rate   ?? 44100,
       samplesize:    audioTrack.audio?.sample_size   ?? 16,
-      description:   aSamples[0].description,
     });
-    const aBase = aSamples[0].dts;
-    for (const s of aSamples) {
-      const sStart = s.offset - aDataStart;
-      const sData  = aData.slice(sStart, sStart + s.size);
-      oa.addSample(atid, sData, {
-        duration:    s.duration,
-        dts:         s.dts - aBase,
-        cts:         s.cts - aBase,
-        is_sync:     s.is_sync,
-        description: s.description,
-      });
+    if (atid) {
+      const aTrakOut = oa.moov.traks[oa.moov.traks.length - 1];
+      aTrakOut.mdia.minf.stbl.stsd.entries[0] = aEntry; // preserve esds / mp4a boxes
+      const aBase = aSamples[0].dts;
+      for (const s of aSamples) {
+        const sStart = s.offset - aDataStart;
+        const sData  = aData.slice(sStart, sStart + s.size);
+        oa.addSample(atid, sData, {
+          duration: s.duration,
+          dts:      s.dts - aBase,
+          cts:      s.cts - aBase,
+          is_sync:  s.is_sync,
+        });
+      }
     }
   }
 
   const stream = oa.getBuffer();
   return new Blob([stream.buffer], { type: "video/mp4" });
 }
+
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
