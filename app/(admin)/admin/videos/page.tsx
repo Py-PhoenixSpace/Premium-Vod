@@ -19,6 +19,7 @@ import {
   Trash2,
   Pencil,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,7 +32,8 @@ export default function AdminVideosPage() {
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [archiving, setArchiving] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleting, setDeleting]   = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ videoId: string; title: string } | null>(null);
 
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -99,13 +101,14 @@ export default function AdminVideosPage() {
   }
 
   async function deleteVideo(videoId: string, title: string) {
-    if (
-      !confirm(
-        `Permanently delete "${title || "Untitled"}"? This removes it from Cloudinary and cannot be undone.`
-      )
-    )
-      return;
+    // Show premium confirmation modal instead of browser confirm()
+    setConfirmDelete({ videoId, title });
+  }
 
+  async function confirmDeleteExecute() {
+    if (!confirmDelete) return;
+    const { videoId } = confirmDelete;
+    setConfirmDelete(null);
     setDeleting(videoId);
     try {
       const res = await fetch("/api/video/delete", {
@@ -670,6 +673,83 @@ export default function AdminVideosPage() {
           </div>
         </div>
       )}
+      {/* ── Premium Delete Confirmation Modal ───────────────────────────── */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+          <div
+            className="w-full max-w-md rounded-2xl border border-border/50 shadow-2xl overflow-hidden bg-card"
+            style={{ animation: "fadeInScale 0.18s ease" }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center ring-1 ring-destructive/20">
+                  <AlertTriangle className="w-5 h-5 text-destructive" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-base">Confirm Deletion</h2>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">This action is irreversible</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Separator visible in both light + dark */}
+            <div className="h-px bg-border/40 mx-6" />
+
+            {/* Body */}
+            <div className="px-6 pb-6 space-y-4">
+              <div className="rounded-xl border border-border/30 bg-muted/20 px-4 py-3">
+                <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wider font-semibold">Item to delete</p>
+                <p className="font-semibold text-sm truncate">
+                  {confirmDelete.title || "Untitled"}
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                This will permanently remove the video from{" "}
+                <span className="text-foreground font-medium">Cloudinary storage</span> and the{" "}
+                <span className="text-foreground font-medium">media library</span>. There is no way to recover it.
+              </p>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setConfirmDelete(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1 gap-2 bg-destructive hover:bg-destructive/90 text-white shadow-lg shadow-destructive/25 font-semibold"
+                  onClick={confirmDeleteExecute}
+                  disabled={deleting === confirmDelete.videoId}
+                >
+                  {deleting === confirmDelete.videoId ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  Delete Permanently
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeInScale {
+          from { opacity: 0; transform: scale(0.95) translateY(8px); }
+          to   { opacity: 1; transform: scale(1)   translateY(0);    }
+        }
+      `}</style>
     </div>
   );
 }

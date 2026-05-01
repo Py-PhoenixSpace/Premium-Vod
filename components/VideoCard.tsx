@@ -6,6 +6,7 @@ import type { Video } from "@/types";
 import { Clock, Crown, Play, Lock, Zap, ImageIcon } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { isSubscriptionValid } from "@/lib/subscription-utils";
+import { useState } from "react";
 
 interface VideoCardProps {
   video: Video;
@@ -34,21 +35,33 @@ export default function VideoCard({ video }: VideoCardProps) {
 
   const catColor = categoryColors[video.category ?? ""] ?? "bg-primary/80";
 
+  // Auto-generate thumbnail from cloudinaryPublicId for videos missing thumbnailUrl
+  // (covers uploads that existed before the finalize-route thumbnail fix).
+  const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+  const autoThumb = (!video.thumbnailUrl && video.cloudinaryPublicId && cloudName && video.mediaType !== "image")
+    ? `https://res.cloudinary.com/${cloudName}/video/upload/so_0,f_jpg,q_auto,w_640/${video.cloudinaryPublicId}`
+    : null;
+
+  const [imgError, setImgError] = useState(false);
+  const effectiveThumb = (!imgError && (video.thumbnailUrl || autoThumb)) || null;
+
   return (
     <Link href={`/watch/${video.videoId}`} className="block group" tabIndex={0}>
       <div className="glass-card rounded-2xl overflow-hidden card-hover bg-card/50 flex flex-col h-full">
 
         {/* ── Thumbnail ─────────────────────────────────────────── */}
         <div className="relative aspect-video overflow-hidden bg-muted/30 flex-shrink-0">
-          {video.thumbnailUrl ? (
+          {effectiveThumb ? (
             <Image
-              src={video.thumbnailUrl}
+              src={effectiveThumb}
               alt={video.title}
               fill
               className={`object-cover transition-all duration-500 group-hover:scale-105 ${
                 isLocked ? "blur-sm scale-105 brightness-50" : "brightness-95 group-hover:brightness-100"
               }`}
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+              onError={() => setImgError(true)}
+              unoptimized
             />
           ) : (
             <div className={`w-full h-full bg-gradient-to-br from-primary/20 via-muted to-accent/10 flex items-center justify-center ${isLocked ? "brightness-50" : ""}`}>

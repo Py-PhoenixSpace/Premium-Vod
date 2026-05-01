@@ -97,10 +97,12 @@ export async function POST(request: NextRequest) {
       const computedTotalDuration = totalDuration ||
         safeSegments.reduce((sum, s) => sum + s.duration, 0);
 
-      // Derive thumbnail from the first segment's public_id
+      // Build thumbnail URL from first segment using Cloudinary's video-to-image API.
+      // so_0 = grab frame at 0 seconds, f_jpg = JPEG output, q_auto = quality auto.
+      // This works even for HEVC/ProRes segments because Cloudinary transcodes server-side.
       const firstSegPubId  = safeSegments[0].publicId;
       const encodedPubId   = encodeURIComponent(firstSegPubId).replace(/%2F/g, "/");
-      const thumbnailUrl   = `https://res.cloudinary.com/${bucket.cloudName}/video/upload/${encodedPubId}.jpg`;
+      const thumbnailUrl   = `https://res.cloudinary.com/${bucket.cloudName}/video/upload/so_0,f_jpg,q_auto,w_640/${encodedPubId}`;
 
       await videoRef.set({
         ...common,
@@ -128,9 +130,12 @@ export async function POST(request: NextRequest) {
     const fallbackImageUrl = `https://res.cloudinary.com/${bucket.cloudName}/image/upload/${encodedPublicId}`;
     const resolvedSecureUrl = secureUrl || (safeMediaType === "image" ? fallbackImageUrl : "");
 
+    // FIX: For video, always generate thumbnail from publicId directly.
+    // Previously relied on secureUrl which is always passed as "" from the upload
+    // page, causing thumbnailUrl to be empty for all single-file videos.
     const thumbnailUrl = safeMediaType === "image"
       ? resolvedSecureUrl
-      : (resolvedSecureUrl ? resolvedSecureUrl.replace(/\.[^.]+$/, ".jpg") : "");
+      : `https://res.cloudinary.com/${bucket.cloudName}/video/upload/so_0,f_jpg,q_auto,w_640/${encodedPublicId}`;
 
     await videoRef.set({
       ...common,
