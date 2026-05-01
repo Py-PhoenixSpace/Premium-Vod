@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useContentProtection } from "@/hooks/useContentProtection";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthStore } from "@/lib/stores/auth-store";
@@ -39,6 +40,9 @@ export default function WatchPage() {
   const [video, setVideo] = useState<Video | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
+
+  // Activate full content protection for this premium page
+  useContentProtection(true);
 
   useEffect(() => {
     async function fetchVideo() {

@@ -160,22 +160,15 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
   async function toggleImageFullscreen() {
     const el = imageContainerRef.current;
     if (!el) return;
-
     try {
       if (document.fullscreenElement === el) {
         await document.exitFullscreen();
-        return;
-      }
-
-      if (!document.fullscreenElement && typeof el.requestFullscreen === "function") {
+      } else if (!document.fullscreenElement && typeof el.requestFullscreen === "function") {
         await el.requestFullscreen();
-        return;
       }
-
-      window.open(streamData?.url || "", "_blank", "noopener,noreferrer");
+      // NOTE: No window.open() fallback — that would expose the signed Cloudinary URL.
     } catch (err) {
-      console.warn("Fullscreen not available for this browser:", err);
-      window.open(streamData?.url || "", "_blank", "noopener,noreferrer");
+      console.warn("Fullscreen not available:", err);
     }
   }
 
@@ -251,19 +244,23 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
 
   if (streamData.mediaType === "image") {
     return (
-      <div className="relative w-full rounded-2xl overflow-hidden brand-glow border border-primary/30 ring-1 ring-white/10 shadow-2xl bg-black/40">
+      <div
+        className="relative w-full rounded-2xl overflow-hidden brand-glow border border-primary/30 ring-1 ring-white/10 shadow-2xl bg-black/40"
+        onContextMenu={(e) => e.preventDefault()}
+      >
         <div
           ref={imageContainerRef}
           className="relative aspect-video w-full bg-black"
-          onContextMenuCapture={(e) => e.preventDefault()}
+          onContextMenu={(e) => e.preventDefault()}
         >
           <Image
             src={streamData.url!}
             alt={streamData.title || "Premium image"}
             fill
-            className="object-contain"
+            className="object-contain select-none"
             sizes="(max-width: 1024px) 100vw, 66vw"
             unoptimized
+            draggable={false}
           />
 
           <Button
@@ -286,10 +283,11 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
     );
   }
 
+  // ── Single-file HLS path (CldVideoPlayer) ────────────────────────────────
   return (
     <div
       className="relative w-full rounded-2xl overflow-hidden brand-glow border border-primary/30 ring-1 ring-white/10 shadow-2xl bg-black"
-      onContextMenuCapture={(e) => e.preventDefault()}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <CldVideoPlayer
         id={`player-${videoId}`}

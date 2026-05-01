@@ -76,14 +76,18 @@ export async function GET(request: NextRequest) {
     if (video.isSegmented && Array.isArray(video.segments) && video.segments.length > 0) {
       const segmentUrls = video.segments.map((seg: any) => {
         const cld = getCloudinaryInstance(seg.storageBucket);
-        // Segments are standard "upload" type (not "authenticated" delivery type).
-        // sign_url:true generates a time-limited signed URL — same access control,
-        // correct Cloudinary delivery type.
+        // Force H.264 + AAC transcode for universal browser compatibility.
+        // Without this, HEVC/ProRes segments from iPhones play AUDIO-ONLY in
+        // Chrome, Firefox, and Android (which don't support HEVC natively).
+        // Cloudinary caches the transcoded version — only the very first viewer
+        // of a new segment pays the transcode delay; all subsequent plays are instant.
+        // sign_url covers the transformation so the signed URL remains tamper-proof.
         const url = cld.url(seg.publicId, {
-          resource_type: "video",
-          type:          "upload",
-          sign_url:      true,
-          secure:        true,
+          resource_type:  "video",
+          type:           "upload",
+          sign_url:       true,
+          secure:         true,
+          transformation: [{ video_codec: "h264", audio_codec: "aac" }],
         });
         return { index: seg.index, url, duration: seg.duration };
       });
