@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Maximize2, Minimize2, Loader2, Wifi } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize2, Minimize2, Loader2, Wifi, ChevronUp, Check, Settings2 } from "lucide-react";
+
+type QualityLevel = "auto" | "low" | "medium" | "high";
+const QUALITY_OPTIONS: { value: QualityLevel; label: string; desc: string }[] = [
+  { value: "auto",   label: "Auto",  desc: "Adaptive"       },
+  { value: "high",   label: "1080p", desc: "HD · More data"  },
+  { value: "medium", label: "720p",  desc: "Balanced"        },
+  { value: "low",    label: "480p",  desc: "Data saver"      },
+];
 
 export interface SegmentInfo {
   index: number; url: string; duration: number;
@@ -9,8 +17,12 @@ export interface SegmentInfo {
 interface Props {
   segments: SegmentInfo[]; totalDuration: number; lastTimestamp: number;
   onProgress?: (t: number, done: boolean) => void; title?: string;
-  // P0: needed for URL auto-refresh before 2-hour Cloudinary signed-URL expiry
   videoId?: string; expiresAt?: number; qualityHint?: string;
+  // Quality selection
+  currentQuality?: QualityLevel;
+  onQualityChange?: (q: QualityLevel) => void;
+  isSwitchingQuality?: boolean;
+  resolvedQualityLabel?: string;
 }
 
 function fmt(s: number) {
@@ -26,7 +38,7 @@ function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
 }
 
-export default function SegmentedVideoPlayer({ segments, totalDuration: propTotal, lastTimestamp, onProgress, title, videoId, expiresAt, qualityHint }: Props) {
+export default function SegmentedVideoPlayer({ segments, totalDuration: propTotal, lastTimestamp, onProgress, title, videoId, expiresAt, qualityHint, currentQuality, onQualityChange, isSwitchingQuality, resolvedQualityLabel }: Props) {
   const vA = useRef<HTMLVideoElement>(null);
   const vB = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -55,6 +67,7 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   const [speed, setSpeed]         = useState(() => typeof window !== "undefined" ? parseFloat(localStorage.getItem("pvod_speed") ?? "1") : 1);
   const [tapFeedback, setTapFeedback] = useState<{dir:"L"|"R",n:number}|null>(null);
   const [seeking, setSeeking]         = useState(false); // cross-segment seek in progress
+  const [showQualityMenu, setShowQualityMenu] = useState(false);
   const initDone      = useRef(false);
   const stallTimer    = useRef<ReturnType<typeof setTimeout>|null>(null);
   const stallDebounce = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -209,39 +222,48 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
     const el=vA.current!;
     el.preload="auto";
     el.src=segments[ss].url;
+    // iOS fix: explicitly trigger network fetch — iOS ignores preload="auto" for data-saving.
+    el.load();
 
-    // Buffer progress — fires as browser downloads data
     const onProg=()=>{
       if(el.buffered.length>0&&el.duration>0) {
         setBufPct(Math.min(Math.round(el.buffered.end(el.buffered.length-1)/el.duration*100),100));
       }
     };
 
-    // FIX: Set currentTime in loadedmetadata (NOT in canplay).
-    // loadedmetadata fires first and tells the browser WHERE to buffer from.
-    // canplay then fires only when enough data is ready AT THAT SEEK POSITION.
-    // If we set currentTime in canplay, the browser buffers from 0, fires canplay
-    // for position 0, then we seek — but there's no data at the resume position,
-    // so the seek silently fails and playback starts from 0.
     const onMeta=()=>{
       setMeta(ss,el);
-      if(lt>0) el.currentTime=lt; // Seek to resume position early
+      if(lt>0) el.currentTime=lt;
     };
 
-    const onCanPlay=()=>{
+    // Core start handler — shared by canplay, loadeddata fallback, and watchdog.
+    // iOS fix: transition phase to "ready" HERE, not in onTime.
+    // If iOS autoplay is blocked, timeupdate never fires → phase stays "init" forever.
+    const doStart=()=>{
       if(initDone.current) return;
       initDone.current=true;
+      setPhase("ready");          // ← key iOS fix: unblock the UI immediately
       setBufPct(100);
       playStartedAt.current=Date.now();
-      el.play().catch(()=>{});
-      // Immediately start preloading next segment
+      el.play().catch(()=>{ setPlaying(false); }); // graceful autoplay-blocked handling
       const ni=ss+1;
       if(ni<segments.length) queueNext(ni,vB.current!);
     };
 
-    el.addEventListener("progress",        onProg);
-    el.addEventListener("canplay",         onCanPlay);
-    el.addEventListener("loadedmetadata",  onMeta);
+    const onCanPlay=()=>doStart();
+
+    // iOS fix: canplay is unreliable on Safari for signed cross-origin MP4s.
+    // loadeddata fires when the first frame is decoded — sufficient to start playback.
+    const onLoadedData=()=>{ if(!initDone.current&&el.readyState>=2) doStart(); };
+
+    // Watchdog: if neither event fires within 8 s but we have at least metadata,
+    // force-start anyway. Eliminates "stuck on preparing video" on slow iOS devices.
+    const watchdog=setTimeout(()=>{ if(!initDone.current&&el.readyState>=1) doStart(); },8000);
+
+    el.addEventListener("progress",       onProg);
+    el.addEventListener("canplay",        onCanPlay);
+    el.addEventListener("loadeddata",     onLoadedData);
+    el.addEventListener("loadedmetadata", onMeta);
 
     setCurSeg(ss); segRef.current=ss; queueRef.current=ss;
 
@@ -249,8 +271,10 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
     inEl.preload="none"; inEl.removeAttribute("src");
 
     return ()=>{
+      clearTimeout(watchdog);
       el.removeEventListener("progress",       onProg);
       el.removeEventListener("canplay",        onCanPlay);
+      el.removeEventListener("loadeddata",     onLoadedData);
       el.removeEventListener("loadedmetadata", onMeta);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,7 +289,8 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
     const g=(c[s]||0)+el.currentTime;
     setGt(g);
 
-    // FIX: Hide init overlay on first timeupdate — video frame is definitely painted now
+    // Safety net: transition phase on first timeupdate in case doStart() fired
+    // before the first decoded frame was actually painted (e.g. autoplay-blocked).
     setPhase("ready");
 
     // FIX: Track buffered range for BOTH active AND inactive element.
@@ -423,6 +448,7 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   // ── Controls hide timer ───────────────────────────────────────────────────
   const resetHide=useCallback(()=>{
     setShowCtrl(true);
+    setShowQualityMenu(false); // close quality menu when controls auto-hide
     if(hideRef.current) clearTimeout(hideRef.current);
     hideRef.current=setTimeout(()=>setShowCtrl(false),3000);
   },[]);
@@ -436,6 +462,7 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   useEffect(()=>{
     const ok=(e:KeyboardEvent)=>{
       if((e.target as HTMLElement).tagName==="INPUT") return;
+      if(e.key==="Escape"){ setShowQualityMenu(false); return; }
       if(e.key===" "||e.key==="k"){e.preventDefault();toggle();}
       if(e.key==="ArrowRight"||e.key==="l"){e.preventDefault();seek(gt+10);}
       if(e.key==="ArrowLeft" ||e.key==="j"){e.preventDefault();seek(Math.max(0,gt-10));}
@@ -625,12 +652,21 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
           Visible during init AND during mid-play stalls.
           - init: animated shimmer (indeterminate) until bufPct climbs
           - ready: disappears                                              */}
+      {/* Quality-switch shimmer bar — visible even when not in init phase */}
+      {isSwitchingQuality && (
+        <div className="absolute top-0 left-0 right-0 h-0.5" style={{zIndex:61}}>
+          <div className="h-full relative overflow-hidden bg-white/10">
+            <div className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-violet-400 to-transparent"
+              style={{animation:"shimmer 1.4s ease-in-out infinite"}} />
+          </div>
+        </div>
+      )}
+
       {isInit && (
         <div className="absolute top-0 left-0 right-0 h-0.5" style={{zIndex:60}}>
           {bufPct>0 ? (
             <div className="h-full bg-violet-500 transition-all duration-300" style={{width:`${bufPct}%`}} />
           ) : (
-            /* Indeterminate shimmer when no progress yet */
             <div className="h-full relative overflow-hidden bg-white/10">
               <div className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-violet-400 to-transparent"
                 style={{animation:"shimmer 1.4s ease-in-out infinite"}} />
@@ -759,6 +795,44 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
               className="bg-transparent text-white/70 text-xs border border-white/20 rounded px-1 py-0.5 cursor-pointer hover:text-white hover:border-white/40 transition-colors">
               {[0.5,0.75,1,1.25,1.5,2].map(s=><option key={s} value={s} className="bg-black text-white">{s===1?"Normal":`${s}×`}</option>)}
             </select>
+
+            {/* Quality picker — always visible */}
+            <div className="relative" onClick={e=>e.stopPropagation()}>
+              <button
+                onClick={()=>setShowQualityMenu(v=>!v)}
+                className="flex items-center gap-1 text-white/70 text-xs border border-white/20 rounded
+                           px-1.5 py-0.5 hover:text-white hover:border-white/40 transition-colors"
+                title="Quality"
+              >
+                <Settings2 className="w-3 h-3" />
+                <span>{currentQuality==="auto"
+                  ? `Auto${resolvedQualityLabel?` (${resolvedQualityLabel})`:""}`
+                  : QUALITY_OPTIONS.find(o=>o.value===currentQuality)?.label??"Auto"}
+                </span>
+                <ChevronUp className={`w-3 h-3 transition-transform duration-150 ${showQualityMenu?"":"rotate-180"}`} />
+              </button>
+
+              {showQualityMenu && (
+                <div className="absolute bottom-full mb-2 right-0 bg-black/95 border border-white/15
+                                rounded-xl overflow-hidden min-w-[152px] shadow-2xl backdrop-blur-md"
+                     style={{zIndex:50}}>
+                  <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">Quality</p>
+                  {QUALITY_OPTIONS.map(opt=>(
+                    <button key={opt.value}
+                      onClick={()=>{ setShowQualityMenu(false); onQualityChange?.(opt.value); }}
+                      className={`w-full flex items-center justify-between px-3 py-1.5 text-left
+                                  hover:bg-white/10 transition-colors
+                                  ${(currentQuality??"auto")===opt.value?"text-violet-400":"text-white/80"}`}
+                    >
+                      <span className="text-xs font-medium">{opt.label}</span>
+                      <span className="text-[10px] text-white/35 ml-2">{opt.desc}</span>
+                      {(currentQuality??"auto")===opt.value&&<Check className="w-3 h-3 text-violet-400 ml-2 shrink-0"/>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button onClick={e=>{e.stopPropagation();toggleFs();}} className="text-white hover:text-white/80 transition-colors p-1" title="Fullscreen (F)">
               {isFs ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
