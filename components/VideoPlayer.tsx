@@ -11,19 +11,47 @@ import type { MediaType } from "@/types";
 import { useUIStore } from "@/lib/stores/ui-store";
 import SegmentedVideoPlayer, { type SegmentInfo } from "@/components/SegmentedVideoPlayer";
 
+/**
+ * Detect the best quality tier for this device.
+ * Runs client-side only (browser APIs). Returns "low" | "medium" | "high".
+ *
+ * Decision matrix:
+ *   Device memory ≤ 2GB OR 2G network  → low    (480p)
+ *   Mobile screen OR 3G network        → medium (720p)
+ *   Desktop + 4G/WiFi                  → high   (1080p)
+ *
+ * Falls back to "medium" (720p) on any API unavailability — safest default.
+ */
+function getQualityHint(): "low" | "medium" | "high" {
+  if (typeof window === "undefined") return "medium";
+  const conn    = (navigator as any).connection;
+  const mem     = (navigator as any).deviceMemory || 4; // GB, defaults to 4 if not available
+  const screenW = window.screen.width * (window.devicePixelRatio || 1);
+  const isMob   = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  // Very constrained: old device or very slow network
+  if (mem <= 2 || conn?.effectiveType === "slow-2g" || conn?.effectiveType === "2g") return "low";
+  // Mid-range: mobile device or 3G
+  if (isMob || conn?.effectiveType === "3g" || screenW <= 1280) return "medium";
+  // High-end: desktop + 4G or better
+  return "high";
+}
+
 interface VideoPlayerProps {
   videoId: string;
   onProgress?: (timestamp: number) => void;
 }
 
 interface StreamData {
-  url?:             string;         // single-file videos
+  url?:             string;
   mediaType:        MediaType;
   lastTimestamp:    number;
   title:            string;
   description:      string;
   durationInSeconds: number;
   category:         string;
+  expiresAt?:       number;    // Unix timestamp — Cloudinary signed URL expiry
+  qualityLabel?:    string;    // e.g. "720p" — for UI display
   // Segmented
   isSegmented?:     boolean;
   segments?:        SegmentInfo[];
@@ -49,14 +77,13 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
 
     async function fetchStream() {
       try {
-        const res = await fetch(`/api/video/stream?id=${videoId}`);
-
-        if (res.status === 403) {
-          if (!cancelled) setAccessDenied(true);
-          return;
+        const quality = getQualityHint();
+        const res = await fetch(`/api/video/stream?id=${videoId}&quality=${quality}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (res.status === 403) { if (!cancelled) setAccessDenied(true); return; }
+          throw new Error(data?.error || "Failed to load content");
         }
-
-        if (!res.ok) throw new Error("Failed to load content");
 
         const data = await res.json();
         if (!cancelled) setStreamData(data);
@@ -237,6 +264,9 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
         totalDuration={streamData.totalDuration || streamData.durationInSeconds || 0}
         lastTimestamp={streamData.lastTimestamp || 0}
         title={streamData.title}
+        videoId={videoId}
+        expiresAt={streamData.expiresAt}
+        qualityHint={getQualityHint()}
         onProgress={(t, completed) => saveProgress(t, completed)}
       />
     );
