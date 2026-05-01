@@ -3,226 +3,211 @@
 /**
  * lib/video-splitter.ts
  *
- * Browser-side video splitting using ffmpeg.wasm.
- * Splits large video files into ≤90 MB MP4 segments using stream copy
- * (no re-encoding — fast). Each segment is extracted one at a time so
- * WASM memory usage stays bounded to: input_file + one_segment at any
- * given moment.
+ * Public entry point for video splitting.
  *
- * Limits:
- *  • Files ≤ SPLIT_THRESHOLD (95 MB) are returned as-is (no split needed)
- *  • Files > MAX_SPLITTABLE_SIZE (3 GB) exceed practical WASM memory limits
+ * Routing logic:
+ *  • File ≤ 95 MB        → return as-is (no split needed)
+ *  • Mobile + MP4/MOV    → MP4Box.js streaming splitter (supports 5 GB, ~30 MB RAM)
+ *  • Everything else     → ffmpeg.wasm splitter (desktop, MKV/AVI/WebM)
+ *
+ * Re-exports all shared types and constants for backward compatibility
+ * with existing callers (upload/page.tsx, etc.).
  */
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { fetchFile } from "@ffmpeg/util"; // toBlobURL removed — files self-hosted in /public/ffmpeg/
 
-// ─── Constants ─────────────────────────────────────────────────────────────
-export const SPLIT_THRESHOLD   = 95  * 1024 * 1024; // 95 MB — skip split below this
-export const SEGMENT_TARGET    = 90  * 1024 * 1024; // 90 MB target per segment
-export const MAX_SPLITTABLE    = 3   * 1024 * 1024 * 1024; // 3 GB WASM limit (desktop)
-export const MAX_SPLITTABLE_MOBILE = 800 * 1024 * 1024; // 800 MB — iOS tab crash prevention
+// ── Shared types / constants / helpers (re-exported for callers) ──────────────
+export {
+  SPLIT_THRESHOLD,
+  SEGMENT_TARGET,
+  MAX_SPLITTABLE,
+  MAX_SPLITTABLE_MOBILE,
+  getVideoDuration,
+  isMobileDevice,
+  isMp4Compatible,
+  type SplitSegment,
+  type SplitPhase,
+  type SplitProgress,
+} from "./video-splitter-shared";
 
-/** Returns the lowercase extension of a file, defaulting to "mp4". */
+import {
+  SPLIT_THRESHOLD,
+  SEGMENT_TARGET,
+  MAX_SPLITTABLE,
+  MAX_SPLITTABLE_MOBILE,
+  getVideoDuration,
+  isMobileDevice,
+  isMp4Compatible,
+} from "./video-splitter-shared";
+
+import { splitVideoFileMobile } from "./mp4box-splitter";
+import type { SplitSegment, SplitProgress } from "./video-splitter-shared";
+
+// ─── ffmpeg.wasm setup ────────────────────────────────────────────────────────
+// Files are self-hosted in /public/ffmpeg/ (downloaded by scripts/download-ffmpeg.mjs).
+// Same-origin paths eliminate blob URL revocation (ERR_FILE_NOT_FOUND),
+// CORS preflight, and COEP require-corp blocking entirely.
+const FFMPEG_CORE_JS   = "/ffmpeg/ffmpeg-core.js";
+const FFMPEG_CORE_WASM = "/ffmpeg/ffmpeg-core.wasm";
+
+// Store on globalThis so the singleton survives Next.js HMR module resets.
+// Without this, each hot reload creates a new FFmpeg instance causing
+// duplicate initialisation and stale blob URL errors in development.
+const G = globalThis as Record<string, unknown>;
+
+async function getFFmpeg(): Promise<FFmpeg> {
+  if (G.__ffmpeg_instance__ && G.__ffmpeg_loaded__) {
+    return G.__ffmpeg_instance__ as FFmpeg;
+  }
+  const ffmpeg = new FFmpeg();
+  await ffmpeg.load({ coreURL: FFMPEG_CORE_JS, wasmURL: FFMPEG_CORE_WASM });
+  G.__ffmpeg_instance__ = ffmpeg;
+  G.__ffmpeg_loaded__   = true;
+  return ffmpeg;
+}
+
+// ─── ffmpeg.wasm helpers ──────────────────────────────────────────────────────
+
 function fileExt(file: File): string {
   const parts = file.name.split(".");
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "mp4";
 }
 
-/**
- * Returns true if the file should be treated as a QuickTime/MOV container.
- * Covers all iPhone camera output formats:
- *  - Standard: .mov (all iPhones), video/quicktime
- *  - iPhone 14+ ProRes: .mov with video/quicktime or video/mp4 MIME
- *  - iPhone 17 Pro: may report video/mp4 even for MOV containers
- *  - HEIF video: .heif / .heic (future-proofing)
- */
 function isMov(file: File): boolean {
   const ext  = fileExt(file);
   const mime = file.type.toLowerCase();
-  // Extension-first — most reliable signal
   if (ext === "mov" || ext === "heif" || ext === "heic") return true;
-  // MIME-type fallback — QuickTime containers
   if (mime === "video/quicktime" || mime === "video/x-quicktime") return true;
-  // Some iPhone 17 Pro ProRes clips are named .mp4 but need the hvc1 tag
-  // We detect them by checking for quicktime in the MIME or the file name
   if (mime.includes("quicktime")) return true;
   return false;
 }
 
-const FFMPEG_CORE_VERSION = "0.12.6";
-const CDN = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-export interface SplitSegment {
-  index:    number;
-  blob:     Blob;
-  duration: number; // seconds, may be 0 if metadata unreadable
-  sizeBytes: number;
-}
-
-export type SplitPhase = "loading" | "splitting" | "reading";
-
-export interface SplitProgress {
-  phase:          SplitPhase;
-  segmentsDone:   number;
-  totalSegments:  number;
-  message:        string;
-}
-
-// ─── Singleton FFmpeg instance ───────────────────────────────────────────────
-let _ffmpeg: FFmpeg | null = null;
-let _loaded  = false;
-
-async function getFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
-  if (_ffmpeg && _loaded) return _ffmpeg;
-  _ffmpeg = new FFmpeg();
-  if (onLog) _ffmpeg.on("log", ({ message }) => onLog(message));
-  await _ffmpeg.load({
-    coreURL: await toBlobURL(`${CDN}/ffmpeg-core.js`,   "text/javascript"),
-    wasmURL: await toBlobURL(`${CDN}/ffmpeg-core.wasm`, "application/wasm"),
-  });
-  _loaded = true;
-  return _ffmpeg;
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Read video duration via a temporary <video> element (no WASM needed). */
-export function getVideoDuration(file: File | Blob): Promise<number> {
-  return new Promise((resolve) => {
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    const url = URL.createObjectURL(file);
-    const cleanup = () => URL.revokeObjectURL(url);
-    video.onloadedmetadata = () => { cleanup(); resolve(video.duration); };
-    video.onerror          = () => { cleanup(); resolve(0); };
-    video.src = url;
-  });
-}
-
-/** Convert seconds to "HH:MM:SS.mmm" for ffmpeg -ss / -t args. */
 function toTimestamp(seconds: number): string {
-  const h   = Math.floor(seconds / 3600);
-  const m   = Math.floor((seconds % 3600) / 60);
-  const s   = seconds % 60;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${s.toFixed(3).padStart(6, "0")}`;
 }
 
-// ─── Main export ─────────────────────────────────────────────────────────────
+// ─── ffmpeg.wasm splitter (desktop / unsupported formats) ────────────────────
 
-/**
- * Split a video File into ≤90 MB segments.
- *
- * Returns a single-element array (the original file as a Blob) if the file is
- * below SPLIT_THRESHOLD — callers don't need to special-case this.
- */
-export async function splitVideoFile(
+async function splitVideoFileFFmpeg(
   file: File,
   onProgress?: (p: SplitProgress) => void,
 ): Promise<SplitSegment[]> {
-
-  // Small file — return as-is
-  if (file.size <= SPLIT_THRESHOLD) {
-    const duration = await getVideoDuration(file);
-    return [{ index: 0, blob: file, duration, sizeBytes: file.size }];
-  }
-
-  // ── Get duration via <video> ────────────────────────────────────────────
   const totalDuration = await getVideoDuration(file);
   if (!isFinite(totalDuration) || totalDuration <= 0) {
-    throw new Error(
-      "Cannot determine video duration. The file may be corrupted or in an unsupported format."
-    );
+    throw new Error("Cannot determine video duration. The file may be corrupted or unsupported.");
   }
 
-  // ── Calculate segment duration ──────────────────────────────────────────
   const bytesPerSec    = file.size / totalDuration;
   const segDurationSec = Math.floor(SEGMENT_TARGET / bytesPerSec);
   const totalSegments  = Math.ceil(totalDuration / segDurationSec);
 
-  // ── Load ffmpeg.wasm ────────────────────────────────────────────────────
-  onProgress?.({
-    phase: "loading", segmentsDone: 0, totalSegments,
-    message: "Loading video processing engine…",
-  });
+  onProgress?.({ phase: "loading", segmentsDone: 0, totalSegments, message: "Loading video processing engine…" });
 
-  const ffmpeg = await getFFmpeg();
-
-  // Use the correct input filename so ffmpeg container detection works
-  // (MOV files need to be named .mov for reliable demuxer selection)
-  const movInput = isMov(file);
+  const ffmpeg    = await getFFmpeg();
+  const movInput  = isMov(file);
   const inputName = movInput ? "input.mov" : "input.mp4";
-
-  // Write input once — stays in WASM virtual FS throughout
-  onProgress?.({
-    phase: "splitting", segmentsDone: 0, totalSegments,
-    message: "Preparing video file…",
-  });
-  await ffmpeg.writeFile(inputName, await fetchFile(file));
-
-  // Extra args for HEVC/MOV inputs:
-  // -tag:v hvc1 — makes HEVC segments recognised by QuickTime/iOS players
-  // Without this, iPhone-recorded HEVC videos produce unplayable MP4 segments.
   const extraArgs = movInput ? ["-tag:v", "hvc1"] : [];
 
-  // ── Extract segments one at a time ─────────────────────────────────────
+  onProgress?.({ phase: "splitting", segmentsDone: 0, totalSegments, message: "Preparing video file…" });
+  await ffmpeg.writeFile(inputName, await fetchFile(file));
+
   const segments: SplitSegment[] = [];
 
   for (let i = 0; i < totalSegments; i++) {
     const startSec = i * segDurationSec;
-    const durSec   = i < totalSegments - 1
-      ? segDurationSec
-      : totalDuration - startSec; // last segment: remainder
+    const durSec   = i < totalSegments - 1 ? segDurationSec : totalDuration - startSec;
 
-    onProgress?.({
-      phase: "splitting", segmentsDone: i, totalSegments,
-      message: `Processing segment ${i + 1} of ${totalSegments}…`,
-    });
+    onProgress?.({ phase: "splitting", segmentsDone: i, totalSegments, message: `Processing segment ${i + 1} of ${totalSegments}…` });
 
     const outName = `seg_${String(i).padStart(4, "0")}.mp4`;
-
     await ffmpeg.exec([
-      "-ss", toTimestamp(startSec),     // seek BEFORE -i for fast seek
+      "-ss", toTimestamp(startSec),
       "-i",  inputName,
       "-t",  toTimestamp(durSec),
-      "-c",  "copy",                    // stream copy — no re-encode
-      ...extraArgs,                     // HEVC tag for MOV sources
+      "-c",  "copy",
+      ...extraArgs,
       "-avoid_negative_ts", "make_zero",
       "-movflags", "+faststart",
-      "-y",
-      outName,
+      "-y", outName,
     ]);
 
-    // ── Read output ───────────────────────────────────────────────────────
-    onProgress?.({
-      phase: "reading", segmentsDone: i, totalSegments,
-      message: `Reading segment ${i + 1}…`,
-    });
+    onProgress?.({ phase: "reading", segmentsDone: i, totalSegments, message: `Reading segment ${i + 1}…` });
 
     const data = await ffmpeg.readFile(outName) as Uint8Array<ArrayBuffer>;
     const blob = new Blob([data], { type: "video/mp4" });
-
-    // Try to get actual duration from the produced segment
     const actualDuration = await getVideoDuration(blob) || durSec;
 
-    segments.push({
-      index:     i,
-      blob,
-      duration:  actualDuration,
-      sizeBytes: blob.size,
-    });
-
-    // Free segment from WASM virtual FS immediately to reclaim memory
+    segments.push({ index: i, blob, duration: actualDuration, sizeBytes: blob.size });
     try { await ffmpeg.deleteFile(outName); } catch { /* ignore */ }
   }
 
-  // Clean up input file from virtual FS
   try { await ffmpeg.deleteFile(inputName); } catch { /* ignore */ }
 
   if (segments.length === 0) {
     throw new Error("Video splitting produced no output. Please check the file format.");
   }
-
   return segments;
 }
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Split a video File into ≤90 MB segments.
+ *
+ * Routing:
+ *  1. File ≤ 95 MB           → return as-is (no split needed)
+ *  2. MP4 / MOV / M4V / HEIF → MP4Box.js streaming splitter
+ *                               Works on BOTH mobile AND desktop.
+ *                               No SharedArrayBuffer, no WASM heap, no COEP needed.
+ *                               Supports up to 5 GB.
+ *  3. MKV / AVI / WebM       → ffmpeg.wasm (desktop only, up to 3 GB)
+ *                               Requires cross-origin isolation (COEP).
+ */
+export async function splitVideoFile(
+  file: File,
+  onProgress?: (p: SplitProgress) => void,
+  signal?: AbortSignal,
+): Promise<SplitSegment[]> {
+
+  // ── Small file: no split needed ──────────────────────────────────────────
+  if (file.size <= SPLIT_THRESHOLD) {
+    const duration = await getVideoDuration(file);
+    return [{ index: 0, blob: file, duration, sizeBytes: file.size }];
+  }
+
+  const mobile = isMobileDevice();
+
+  // ── MP4 / MOV / M4V / HEIF — use MP4Box.js on ALL devices ───────────────
+  // MP4Box reads in 8 MB chunks: peak RAM ~30 MB, supports up to 5 GB.
+  // No SharedArrayBuffer required — works without any COOP/COEP headers.
+  if (isMp4Compatible(file)) {
+    if (file.size > MAX_SPLITTABLE_MOBILE) {
+      throw new Error(
+        `File is too large (max 5 GB, got ${(file.size / 1e9).toFixed(1)} GB). ` +
+        `Please trim the video or compress it before uploading.`
+      );
+    }
+    return splitVideoFileMobile(file, onProgress, signal);
+  }
+
+  // ── Non-MP4 formats (MKV, AVI, WebM) — ffmpeg.wasm, desktop only ────────
+  if (mobile) {
+    throw new Error(
+      "MKV, AVI, and WebM files are not supported on mobile. " +
+      "Please convert to MP4 first, then upload."
+    );
+  }
+
+  if (file.size > MAX_SPLITTABLE) {
+    throw new Error(
+      `File is too large for desktop upload (max 3 GB, got ${(file.size / 1e9).toFixed(1)} GB).`
+    );
+  }
+
+  return splitVideoFileFFmpeg(file, onProgress);
+}
+

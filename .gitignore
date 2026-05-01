@@ -51,3 +51,6 @@ next-env.d.ts
 .DS_Store
 Thumbs.db
 *.swp
+
+# ffmpeg-core self-hosted files (downloaded by scripts/download-ffmpeg.mjs)
+public/ffmpeg/

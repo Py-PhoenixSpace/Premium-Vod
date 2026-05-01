@@ -66,7 +66,7 @@ export function proxy(request: NextRequest) {
     // because COOP breaks OAuth popups and Stripe checkout on other pages.
     if (pathname === "/admin/upload" || pathname.startsWith("/admin/upload/")) {
       res.headers.set("Cross-Origin-Opener-Policy",   "same-origin");
-      res.headers.set("Cross-Origin-Embedder-Policy",  "require-corp");
+      res.headers.set("Cross-Origin-Embedder-Policy",  "credentialless");
       res.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
     }
 
