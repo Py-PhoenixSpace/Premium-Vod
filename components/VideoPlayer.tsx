@@ -9,7 +9,104 @@ import type { CloudinaryVideoPlayer } from "next-cloudinary";
 import Image from "next/image";
 import type { MediaType } from "@/types";
 import { useUIStore } from "@/lib/stores/ui-store";
+import { useAuthStore } from "@/lib/stores/auth-store";
 import SegmentedVideoPlayer, { type SegmentInfo } from "@/components/SegmentedVideoPlayer";
+
+// ── Screen Protection Component ───────────────────────────────────────────────
+function ScreenProtector({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore(state => state.user);
+  const [isHidden, setIsHidden] = useState(false);
+  
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsHidden(document.hidden || !document.hasFocus());
+    };
+    
+    const handleBlur = () => setIsHidden(true);
+    const handleFocus = () => setIsHidden(false);
+
+    const blockKeys = (e: KeyboardEvent) => {
+       // Block F12, Ctrl+Shift+I, Ctrl+Shift+C, Ctrl+Shift+J, Ctrl+U
+       if (e.key === "F12" || 
+           (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i" || e.key === "C" || e.key === "c" || e.key === "J" || e.key === "j")) ||
+           (e.ctrlKey && (e.key === "U" || e.key === "u"))) {
+         e.preventDefault();
+       }
+       // Block Win+Shift+S or Cmd+Shift+4 (Heuristic for screenshot tools)
+       if ((e.metaKey || e.ctrlKey) && e.shiftKey && ["S", "s", "4", "3", "5"].includes(e.key)) {
+         setIsHidden(true);
+         setTimeout(() => setIsHidden(false), 3000);
+       }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("keydown", blockKeys);
+
+    setIsHidden(document.hidden || !document.hasFocus());
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("keydown", blockKeys);
+    };
+  }, []);
+
+  const watermarkText = user ? `${user.email} - ${user.uid}` : "Premium Content Protected";
+
+  return (
+    <div 
+      className="relative w-full h-full group"
+      onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+    >
+      <div className={`w-full h-full transition-all duration-300 ${isHidden ? 'blur-[40px] opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
+         {children}
+      </div>
+      
+      {/* Dynamic Watermarks */}
+      {!isHidden && (
+         <div className="pointer-events-none absolute inset-0 z-[100] overflow-hidden opacity-30 mix-blend-overlay">
+           {[...Array(5)].map((_, i) => (
+             <div 
+               key={i} 
+               className="absolute text-white/40 font-bold text-lg md:text-2xl whitespace-nowrap"
+               style={{
+                 top: `${15 + i * 20}%`,
+                 left: `-50%`,
+                 animation: `float-watermark ${15 + i * 3}s linear infinite ${i % 2 === 0 ? 'alternate' : 'alternate-reverse'}`
+               }}
+             >
+               {watermarkText} • {watermarkText} • {watermarkText}
+             </div>
+           ))}
+           <style>{`
+             @keyframes float-watermark {
+               0% { transform: translateX(0) rotate(-15deg); }
+               100% { transform: translateX(100%) rotate(-15deg); }
+             }
+           `}</style>
+         </div>
+      )}
+
+      {/* Overlay when hidden */}
+      {isHidden && (
+        <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-3xl text-white flex-col gap-4 rounded-xl border border-white/10">
+           <div className="w-16 h-16 rounded-full bg-destructive/20 flex items-center justify-center">
+             <Lock className="w-8 h-8 text-destructive animate-pulse" />
+           </div>
+           <p className="text-2xl font-bold">Playback Protected</p>
+           <p className="text-muted-foreground text-sm max-w-sm text-center">
+             Screen recording, screenshots, or background playback is disabled for premium content. Please return focus to continue watching.
+           </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Quality types ────────────────────────────────────────────────────────────
 export type QualityLevel = "auto" | "low" | "medium" | "high";
@@ -366,20 +463,24 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
   // ── Segmented video path ──────────────────────────────────────────────────
   if (streamData.isSegmented && streamData.segments?.length) {
     return (
-      <SegmentedVideoPlayer
-        segments={streamData.segments}
-        totalDuration={streamData.totalDuration || streamData.durationInSeconds || 0}
-        lastTimestamp={streamData.lastTimestamp || 0}
-        title={streamData.title}
-        videoId={videoId}
-        expiresAt={streamData.expiresAt}
-        qualityHint={quality === "auto" ? getQualityHint() : quality}
-        currentQuality={quality}
-        onQualityChange={handleQualityChange}
-        isSwitchingQuality={isSwitchingQuality}
-        resolvedQualityLabel={streamData.qualityLabel}
-        onProgress={(t, completed) => saveProgress(t, completed)}
-      />
+      <div className="relative w-full rounded-2xl overflow-hidden brand-glow border border-primary/30 ring-1 ring-white/10 shadow-2xl bg-black">
+        <ScreenProtector>
+          <SegmentedVideoPlayer
+            segments={streamData.segments}
+            totalDuration={streamData.totalDuration || streamData.durationInSeconds || 0}
+            lastTimestamp={streamData.lastTimestamp || 0}
+            title={streamData.title}
+            videoId={videoId}
+            expiresAt={streamData.expiresAt}
+            qualityHint={quality === "auto" ? getQualityHint() : quality}
+            currentQuality={quality}
+            onQualityChange={handleQualityChange}
+            isSwitchingQuality={isSwitchingQuality}
+            resolvedQualityLabel={streamData.qualityLabel}
+            onProgress={(t, completed) => saveProgress(t, completed)}
+          />
+        </ScreenProtector>
+      </div>
     );
   }
 
@@ -424,41 +525,42 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
   return (
     <div
       className="relative w-full rounded-2xl overflow-hidden brand-glow border border-primary/30 ring-1 ring-white/10 shadow-2xl bg-black"
-      onContextMenu={e => e.preventDefault()}
     >
-      {/* Quality switching shimmer bar */}
-      {isSwitchingQuality && (
-        <div className="absolute top-0 left-0 right-0 h-0.5 z-50 overflow-hidden">
-          <div
-            className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-violet-400 to-transparent"
-            style={{ animation: "shimmer 1.4s ease-in-out infinite" }}
+      <ScreenProtector>
+        {/* Quality switching shimmer bar */}
+        {isSwitchingQuality && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 z-50 overflow-hidden">
+            <div
+              className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-violet-400 to-transparent"
+              style={{ animation: "shimmer 1.4s ease-in-out infinite" }}
+            />
+            <style>{`@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}`}</style>
+          </div>
+        )}
+
+        {/* Quality picker overlay — top-right corner */}
+        <div className="absolute top-3 right-3 z-40">
+          <QualityPicker
+            current={quality}
+            onChange={handleQualityChange}
+            resolvedLabel={streamData.qualityLabel}
           />
-          <style>{`@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}`}</style>
         </div>
-      )}
 
-      {/* Quality picker overlay — top-right corner */}
-      <div className="absolute top-3 right-3 z-40">
-        <QualityPicker
-          current={quality}
-          onChange={handleQualityChange}
-          resolvedLabel={streamData.qualityLabel}
+        <CldVideoPlayer
+          key={`${videoId}-${quality}`}
+          id={`player-${videoId}`}
+          width="1920"
+          height="1080"
+          src={streamData.url!}
+          logo={false}
+          colors={{ accent: "#FF4500", base: "#1a1a2e", text: "#ffffff" }}
+          autoplay={false}
+          playerRef={playerRef}
+          videoRef={videoRef}
+          onEnded={() => { saveProgress(streamData.durationInSeconds, true); }}
         />
-      </div>
-
-      <CldVideoPlayer
-        key={`${videoId}-${quality}`}
-        id={`player-${videoId}`}
-        width="1920"
-        height="1080"
-        src={streamData.url!}
-        logo={false}
-        colors={{ accent: "#FF4500", base: "#1a1a2e", text: "#ffffff" }}
-        autoplay={false}
-        playerRef={playerRef}
-        videoRef={videoRef}
-        onEnded={() => { saveProgress(streamData.durationInSeconds, true); }}
-      />
+      </ScreenProtector>
     </div>
   );
 }
