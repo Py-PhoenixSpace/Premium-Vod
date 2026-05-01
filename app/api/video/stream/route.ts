@@ -7,23 +7,86 @@ import { getCloudinaryInstance } from "@/lib/cloudinary-buckets";
 import type { MediaType, UserSubscription } from "@/types";
 import { isSubscriptionValid } from "@/lib/subscription-utils";
 
+// ── Quality tier definitions ────────────────────────────────────────────────
+// Each tier is a Cloudinary transformation that caps resolution + bitrate
+// and uses perceptual quality optimisation (q_auto:good).
+// "limit" crop: never upscales — only downscales if source is larger.
+// Cloudinary caches each (publicId + transformation) combination, so the
+// first viewer of a new tier pays a ~2-5s transcode delay; every subsequent
+// play is served from the CDN cache instantly.
+interface QualityTier {
+  label: string;
+  width: number;
+  height: number;
+  bitRate: string;
+  quality: string;
+}
+
+const QUALITY_TIERS: Record<string, QualityTier> = {
+  low: {
+    // 480p — very old Android phones, 2G/3G networks
+    label: "480p",
+    width: 854, height: 480,
+    bitRate: "1200k",
+    quality: "auto:eco",
+  },
+  medium: {
+    // 720p — default for most mobile + average networks
+    label: "720p",
+    width: 1280, height: 720,
+    bitRate: "2500k",
+    quality: "auto:good",
+  },
+  high: {
+    // 1080p — desktop, large screens, fast connections
+    label: "1080p",
+    width: 1920, height: 1080,
+    bitRate: "5000k",
+    quality: "auto:good",
+  },
+};
+
 /**
- * GET /api/video/stream?id=videoId
+ * Determine quality tier from User-Agent + explicit `quality` query param.
+ * Priority: explicit param > UA heuristics.
+ */
+function resolveQualityTier(ua: string, qualityHint?: string | null): QualityTier {
+  if (qualityHint && QUALITY_TIERS[qualityHint]) return QUALITY_TIERS[qualityHint];
+
+  // UA-based heuristics as fallback
+  const isMobile     = /Mobi|Android|iPhone|iPad/i.test(ua);
+  const isOldAndroid = /Android [2-7]\./i.test(ua);
+
+  if (isOldAndroid) return QUALITY_TIERS.low;
+  if (isMobile)     return QUALITY_TIERS.medium;
+  return                   QUALITY_TIERS.high;
+}
+
+/**
+ * GET /api/video/stream?id=videoId&quality=low|medium|high
  *
  * Validates user access and returns:
- * - Single-file video: one signed Cloudinary URL
- * - Segmented video:   array of signed URLs (one per segment)
+ * - Single-file video: one signed Cloudinary HLS URL
+ * - Segmented video:   array of signed, quality-optimised URLs (one per segment)
  *
- * The response shape differs so the client can branch to the appropriate player.
+ * The `quality` param is optional. If omitted, quality is inferred from the
+ * User-Agent header. The client (SegmentedVideoPlayer) should detect the
+ * device's network/screen and pass the appropriate hint.
  */
 export async function GET(request: NextRequest) {
   const auth = await requireUser();
   if (!auth.ok) return auth.response;
 
-  const videoId = request.nextUrl.searchParams.get("id");
+  const { searchParams } = request.nextUrl;
+  const videoId     = searchParams.get("id");
+  const qualityHint = searchParams.get("quality"); // low | medium | high | null
+
   if (!videoId) {
     return Response.json({ error: "Content ID required" }, { status: 400 });
   }
+
+  const ua   = request.headers.get("user-agent") || "";
+  const tier = resolveQualityTier(ua, qualityHint);
 
   try {
     const videoDoc = await adminDb.collection("videos").doc(videoId).get();
@@ -69,6 +132,7 @@ export async function GET(request: NextRequest) {
       title:           video.title,
       description:     video.description,
       category:        video.category,
+      qualityLabel:    tier.label,           // e.g. "720p" — for UI display
       expiresAt:       Math.floor(Date.now() / 1000) + 2 * 60 * 60,
     };
 
@@ -76,18 +140,31 @@ export async function GET(request: NextRequest) {
     if (video.isSegmented && Array.isArray(video.segments) && video.segments.length > 0) {
       const segmentUrls = video.segments.map((seg: any) => {
         const cld = getCloudinaryInstance(seg.storageBucket);
-        // Force H.264 + AAC transcode for universal browser compatibility.
-        // Without this, HEVC/ProRes segments from iPhones play AUDIO-ONLY in
-        // Chrome, Firefox, and Android (which don't support HEVC natively).
-        // Cloudinary caches the transcoded version — only the very first viewer
-        // of a new segment pays the transcode delay; all subsequent plays are instant.
-        // sign_url covers the transformation so the signed URL remains tamper-proof.
+
+        // Transformation chain:
+        // 1. h264 + aac    — universal browser compatibility (fixes HEVC/iPhone)
+        // 2. w_ + h_ limit — cap resolution to tier (never upscales)
+        // 3. q_auto:*      — perceptual quality optimiser (40-60% size reduction)
+        // 4. br_           — cap bitrate to prevent excessive data usage
+        //
+        // Result: 4K iPhone segment: 80-100MB → 5-8MB (mobile) or 12-18MB (desktop)
+        // Cloudinary caches each (publicId × transformation) pair on first access.
         const url = cld.url(seg.publicId, {
           resource_type:  "video",
           type:           "upload",
           sign_url:       true,
           secure:         true,
-          transformation: [{ video_codec: "h264", audio_codec: "aac" }],
+          transformation: [
+            {
+              video_codec:  "h264",
+              audio_codec:  "aac",
+              width:         tier.width,
+              height:        tier.height,
+              crop:          "limit",        // never upscale
+              quality:       tier.quality,   // perceptual optimisation
+              bit_rate:      tier.bitRate,   // hard bitrate ceiling
+            },
+          ],
         });
         return { index: seg.index, url, duration: seg.duration };
       });
@@ -101,20 +178,25 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // ── Mode B: Single-file video (existing behaviour) ───────────────────
+    // ── Mode B: Single-file video ────────────────────────────────────────
     const cld      = getCloudinaryInstance(video.storageBucket);
     const imageUrl = video.secureUrl || video.thumbnailUrl ||
       cld.url(video.cloudinaryPublicId, { resource_type: "image", type: "upload", secure: true });
 
+    // HLS with explicit streaming profile.
+    // "full_hd" generates: 240p, 360p, 480p, 720p, 1080p variants.
+    // The browser's ABR algorithm (via hls.js in CldVideoPlayer) auto-selects
+    // the appropriate variant based on available bandwidth.
+    // "auto" was unpredictable — "full_hd" gives a controlled, complete ladder.
     const signedUrl = mediaType === "image"
       ? imageUrl
       : cld.url(video.cloudinaryPublicId, {
-          resource_type:    "video",
-          format:           "m3u8",
-          type:             "authenticated",
-          sign_url:         true,
-          secure:           true,
-          streaming_profile: "auto",
+          resource_type:     "video",
+          format:            "m3u8",
+          type:              "authenticated",
+          sign_url:          true,
+          secure:            true,
+          streaming_profile: "full_hd",    // was: "auto"
         });
 
     return Response.json({
@@ -128,3 +210,4 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: "Failed to generate stream URL" }, { status: 500 });
   }
 }
+

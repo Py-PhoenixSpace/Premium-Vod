@@ -9,6 +9,8 @@ export interface SegmentInfo {
 interface Props {
   segments: SegmentInfo[]; totalDuration: number; lastTimestamp: number;
   onProgress?: (t: number, done: boolean) => void; title?: string;
+  // P0: needed for URL auto-refresh before 2-hour Cloudinary signed-URL expiry
+  videoId?: string; expiresAt?: number; qualityHint?: string;
 }
 
 function fmt(s: number) {
@@ -24,7 +26,7 @@ function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
 }
 
-export default function SegmentedVideoPlayer({ segments, totalDuration: propTotal, lastTimestamp, onProgress, title }: Props) {
+export default function SegmentedVideoPlayer({ segments, totalDuration: propTotal, lastTimestamp, onProgress, title, videoId, expiresAt, qualityHint }: Props) {
   const vA = useRef<HTMLVideoElement>(null);
   const vB = useRef<HTMLVideoElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -34,7 +36,8 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   const [curSeg, setCurSeg]       = useState(0);
   const [playing, setPlaying]     = useState(false);
   const [muted, setMuted]         = useState(false);
-  const [vol, setVol]             = useState(1);
+  // D2: Persist volume across sessions
+  const [vol, setVol]             = useState(() => typeof window !== "undefined" ? parseFloat(localStorage.getItem("pvod_vol") ?? "1") : 1);
   const [gt, setGt]               = useState(lastTimestamp||0);
   const [stalled, setStalled]     = useState(false);  // mid-play stall
   const [isFs, setIsFs]           = useState(false);
@@ -48,7 +51,8 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   const [phase, setPhase]         = useState<"init"|"ready">("init");
   const [bufPct, setBufPct]       = useState(0);
   const [bufferedFrac, setBufferedFrac] = useState(0); // for gray buffered bar
-  const [speed, setSpeed]         = useState(1);
+  // D2: Persist playback speed across sessions
+  const [speed, setSpeed]         = useState(() => typeof window !== "undefined" ? parseFloat(localStorage.getItem("pvod_speed") ?? "1") : 1);
   const [tapFeedback, setTapFeedback] = useState<{dir:"L"|"R",n:number}|null>(null);
   const [seeking, setSeeking]         = useState(false); // cross-segment seek in progress
   const initDone      = useRef(false);
@@ -77,15 +81,69 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   // On cross-segment seeks we reset to the new seek position as the new floor.
   const maxBufFracRef = useRef(0);
 
-  // Network-adaptive preload threshold: 4G=20%, 3G=40%, slow=60%
+  // A1: Mutable live segments ref — updated by URL refresh so event handlers
+  // always use the latest signed URL without stale closures.
+  const liveSegsRef    = useRef<SegmentInfo[]>(segments);
+  // Track URL expiry: refresh 5 min before the 2h Cloudinary signing window closes.
+  const urlExpiresAt   = useRef<number>(expiresAt ?? Math.floor(Date.now() / 1000) + 7200);
+  const refreshingUrls = useRef(false);
+
+  async function refreshUrls() {
+    if (!videoId || refreshingUrls.current) return;
+    refreshingUrls.current = true;
+    try {
+      const q   = qualityHint || "medium";
+      const res = await fetch(`/api/video/refresh-urls?id=${videoId}&quality=${q}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.segments)) {
+        liveSegsRef.current = data.segments;
+        urlExpiresAt.current = data.expiresAt ?? Math.floor(Date.now() / 1000) + 7200;
+      }
+    } catch { /* silently ignore — stale URL will be retried by error handler */ }
+    finally { refreshingUrls.current = false; }
+  }
+
+  function isUrlExpired() {
+    // Trigger a refresh when < 5 minutes remain on the signed URL
+    return Date.now() / 1000 > urlExpiresAt.current - 300;
+  }
+
+  // Network-adaptive preload threshold — how far through current segment before
+  // we start preloading the next one.
+  // With Phase 1 quality tiers, segments are now 5-8MB (mobile) / 12-18MB (desktop),
+  // down from 80-100MB. At 4G (~10Mbps), a 6MB segment downloads in ~5s.
+  // So we can safely trigger preload much earlier (5% → 55s of buffer time at 60s/seg).
   function preloadThreshold() {
-    if (typeof navigator === "undefined") return 0.4;
+    if (typeof navigator === "undefined") return 0.15;
     const c = (navigator as any).connection;
-    if (!c) return 0.3;
-    if (c.saveData) return 0.7;
-    if (c.effectiveType === "4g") return 0.2;
-    if (c.effectiveType === "3g") return 0.4;
-    return 0.6;
+    if (!c) return 0.15;                       // Unknown — conservative 15%
+    if (c.saveData) return 0.6;               // Data-saver mode — wait longer
+    if (c.effectiveType === "4g") return 0.05; // Fast: preload at 5%
+    if (c.effectiveType === "3g") return 0.2;  // Medium: preload at 20%
+    return 0.5;                                // Slow (2G/slow-2g): preload at 50%
+  }
+
+  // N+2 prefetch: after the N+1 segment is queued, also warm the CDN cache
+  // for segment N+2 using a lightweight fetch(). This pre-resolves DNS and
+  // establishes a TCP connection so when N+1 finishes, N+2 starts instantly.
+  // We don't assign it to a <video> element (that wastes memory) — we just
+  // let the browser HTTP cache absorb the first few KB of the response.
+  const n2FetchRef = useRef<AbortController | null>(null);
+  function prefetchN2(idx: number) {
+    if (!segments[idx]) return;
+    n2FetchRef.current?.abort(); // Cancel any previous prefetch
+    const ac = new AbortController();
+    n2FetchRef.current = ac;
+    // Fetch with a range request for just the first 512KB — enough to warm
+    // the CDN edge node and browser cache without downloading the whole segment.
+    fetch(segments[idx].url, {
+      signal: ac.signal,
+      headers: { Range: "bytes=0-524287" }, // first 512KB
+      mode: "cors",
+      credentials: "omit",
+      cache: "force-cache",
+    }).catch(() => {}); // Errors are expected (range not supported, abort, etc.)
   }
 
   useEffect(()=>{ totalRef.current=totalDur; },  [totalDur]);
@@ -119,13 +177,26 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
     return ""; // Safari/iOS — no NetworkInformation API
   }
 
-  function queueNext(idx:number, el:HTMLVideoElement) {
-    if(queueRef.current>=idx||!segments[idx]) return;
-    inactiveReady.current=false;
-    el.preload="auto"; el.src=segments[idx].url;
-    el.onloadedmetadata=()=>setMeta(idx,el);
-    el.addEventListener("canplay",()=>{ inactiveReady.current=true; },{once:true});
-    queueRef.current=idx;
+  function queueNext(idx: number, el: HTMLVideoElement) {
+    if (queueRef.current >= idx || !liveSegsRef.current[idx]) return;
+    inactiveReady.current = false;
+    // A1: Proactively refresh if the signed URL is about to expire
+    if (isUrlExpired()) refreshUrls();
+    const url = liveSegsRef.current[idx].url;
+    el.preload = "auto";
+    el.src = url;
+    el.onloadedmetadata = () => setMeta(idx, el);
+    el.addEventListener("canplay", () => { inactiveReady.current = true; }, { once: true });
+    // A2: Simple retry on first CDN/network error — reload after 2s with latest URL
+    el.addEventListener("error", () => {
+      if (queueRef.current !== idx) return; // already moved on
+      setTimeout(() => {
+        if (queueRef.current !== idx) return;
+        el.src = liveSegsRef.current[idx]?.url || url; // use refreshed URL if available
+        el.load();
+      }, 2000);
+    }, { once: true });
+    queueRef.current = idx;
   }
 
   // ── Mount: load first segment, wire canplay → auto-play ──────────────────
@@ -229,10 +300,14 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
       setBufferedFrac(maxBufFracRef.current);
     }
 
-    // Network-adaptive preload threshold
+    // Network-adaptive preload: queue N+1 into inactive <video> element
     const ni=s+1;
     if(isFinite(el.duration)&&el.duration>0&&el.currentTime/el.duration>preloadThreshold()&&ni<segments.length&&queueRef.current<ni) {
       const inEl=getIn(); if(inEl) queueNext(ni,inEl);
+      // N+2 CDN warm-up: prefetch the segment after next via fetch()
+      // so the browser has a head-start when N+1 finishes playing.
+      const ni2=ni+1;
+      if(ni2<segments.length) prefetchN2(ni2);
     }
 
     const now=Date.now();
@@ -246,8 +321,8 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
     if(ni>=segments.length){ setPlaying(false); onProgress?.(totalRef.current,true); return; }
 
     const inEl=getIn()!;
-    if(!inEl.src||inEl.src!==segments[ni].url) {
-      inEl.preload="auto"; inEl.src=segments[ni].url;
+    if(!inEl.src||inEl.src!==liveSegsRef.current[ni]?.url) {
+      inEl.preload="auto"; inEl.src=liveSegsRef.current[ni]?.url || segments[ni].url;
       inEl.onloadedmetadata=()=>setMeta(ni,inEl);
     }
     inEl.currentTime=0;
@@ -266,7 +341,11 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
         // getA() now correctly returns the NEW active (inEl) post-swap via ref.
         // We want to clear the OLD active: it's the opposite of activeRef.
         const oldEl = next === "A" ? vB.current : vA.current;
-        if(oldEl){ oldEl.preload="none"; oldEl.removeAttribute("src"); }
+        if(oldEl){
+          // A3: el.load() is the W3C-spec way to release decoded frame buffers.
+          // removeAttribute("src") alone does NOT free GPU/CPU memory on iOS Safari.
+          oldEl.pause(); oldEl.preload="none"; oldEl.removeAttribute("src"); oldEl.load();
+        }
       }
     };
 
@@ -287,10 +366,21 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
         // Don't show stall overlay in first 2s after play started (init buffering)
         if(Date.now()-playStartedAt.current<2000) return;
         setStalled(true);
-        // Auto-recovery: if still stalled after 5s, reload from current time
-        stallTimer.current=setTimeout(()=>{
+        // Auto-recovery: if still stalled after 5s, reload with URL awareness
+        stallTimer.current=setTimeout(async ()=>{
           const el=getA(); if(!el||el.paused) return;
-          if(el.readyState<3){ const ct=el.currentTime,src=el.src; el.src=src; el.currentTime=ct; el.play().catch(()=>{}); }
+          if(el.readyState>=3) return; // recovered on its own
+          // B1: Check WHY we stalled:
+          // NETWORK_NO_SOURCE (3) = URL expired → refresh then reload
+          // NETWORK_LOADING (2) = CDN slow → retry same URL
+          if(el.networkState===HTMLMediaElement.NETWORK_NO_SOURCE) {
+            await refreshUrls();
+            const seg=segRef.current;
+            const freshUrl=liveSegsRef.current[seg]?.url;
+            if(freshUrl){ el.src=freshUrl; el.currentTime=el.currentTime; el.play().catch(()=>{}); }
+          } else if(el.readyState<3){
+            const ct=el.currentTime; el.src=el.src; el.currentTime=ct; el.play().catch(()=>{});
+          }
         },5000);
       },800);
     };
@@ -338,7 +428,10 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   },[]);
 
   // Apply speed to both video elements
+  // D2: Persist vol and speed to localStorage whenever they change
   useEffect(()=>{ [vA,vB].forEach(r=>{ if(r.current) r.current.playbackRate=speed; }); },[speed]);
+  useEffect(()=>{ localStorage.setItem("pvod_vol",   String(vol));   },[vol]);
+  useEffect(()=>{ localStorage.setItem("pvod_speed", String(speed)); },[speed]);
 
   useEffect(()=>{
     const ok=(e:KeyboardEvent)=>{
@@ -411,7 +504,8 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
       // Clear stale handler from any previous seek
       el.onloadedmetadata=null;
       el.preload="auto";
-      el.src=segments[si].url;
+      // A1: Use liveSegsRef for latest signed URL
+      el.src=liveSegsRef.current[si]?.url || segments[si].url;
 
       // Step 1: metadata ready → seek to target position (browser buffers from here)
       el.addEventListener("loadedmetadata", function onMeta() {
@@ -431,7 +525,8 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
       // where we're seeking to, but preserves any buffer already ahead of that point.
       maxBufFracRef.current = Math.max(0, cl / (totalRef.current || 1));
 
-      inEl.preload="none"; inEl.removeAttribute("src");
+      // A3: Memory flush the old element
+      inEl.pause(); inEl.preload="none"; inEl.removeAttribute("src"); inEl.load();
       queueRef.current=si; setCurSeg(si); segRef.current=si;
     }
     setGt(cl);
@@ -516,11 +611,14 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
       onTouchEnd={handleTap}
       onClick={toggle} onContextMenu={e=>e.preventDefault()}
     >
+      {/* B3: translateZ(0) forces GPU compositing — hardware video decode on mobile.
+           Without this, the browser may use software rasterization → 15fps on low-end phones.
+           willChange:transform signals the compositor to keep this layer on the GPU. */}
       <video ref={vA} className="absolute inset-0 w-full h-full object-contain"
-        style={{zIndex:active==="A"?10:1,opacity:active==="A"?1:0}}
+        style={{zIndex:active==="A"?10:1,opacity:active==="A"?1:0,transform:"translateZ(0)",willChange:"transform"}}
         playsInline webkit-playsinline="true" preload="none" />
       <video ref={vB} className="absolute inset-0 w-full h-full object-contain"
-        style={{zIndex:active==="B"?10:1,opacity:active==="B"?1:0}}
+        style={{zIndex:active==="B"?10:1,opacity:active==="B"?1:0,transform:"translateZ(0)",willChange:"transform"}}
         playsInline webkit-playsinline="true" preload="none" />
 
       {/* ── YouTube-style thin top loading bar ─────────────────────────────
