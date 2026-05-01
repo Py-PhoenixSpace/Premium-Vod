@@ -95,6 +95,25 @@ export default function SegmentedVideoPlayer({
     }
   }
 
+  /**
+   * Preload the next segment into the inactive video element.
+   * KEY FIX for slow loading:
+   *   - We use preload="none" on both elements initially.
+   *   - We only assign the next segment src when the user is 75%+ through
+   *     the current segment (timeupdate triggers this).
+   *   - We set preload="auto" only on the ACTIVE element during playback.
+   *   - This prevents the browser from race-downloading two streams at once
+   *     on a slow mobile connection, which is what caused the initial stall.
+   */
+  function scheduleNextSegment(nextIdx: number, inactive: HTMLVideoElement) {
+    if (segQueue.current >= nextIdx) return; // already queued
+    if (!segments[nextIdx]) return;
+    inactive.preload = "auto";
+    inactive.src = segments[nextIdx].url;
+    inactive.onloadedmetadata = () => onMetadata(nextIdx, inactive);
+    segQueue.current = nextIdx;
+  }
+
   // ── Initial load & resume ──────────────────────────────────────────────────
   useEffect(() => {
     if (!segments.length) return;
@@ -104,6 +123,10 @@ export default function SegmentedVideoPlayer({
       if (lastTimestamp >= cum[i]) { startSeg = i; localTime = lastTimestamp - cum[i]; break; }
     }
     const active = videoA.current!;
+    // FIX: Start with preload="auto" only on the ACTIVE video.
+    // The inactive video starts with preload="none" — no src assigned yet.
+    // The next segment will be queued lazily via timeupdate at 75%.
+    active.preload = "auto";
     active.src = segments[startSeg].url;
     active.onloadedmetadata = () => {
       onMetadata(startSeg, active);
@@ -113,12 +136,10 @@ export default function SegmentedVideoPlayer({
     currentSegRef.current = startSeg;
     segQueue.current = startSeg;
 
-    if (startSeg + 1 < segments.length) {
-      const inactive = videoB.current!;
-      inactive.src = segments[startSeg + 1].url;
-      inactive.onloadedmetadata = () => onMetadata(startSeg + 1, inactive);
-      segQueue.current = startSeg + 1;
-    }
+    // Inactive video: no src yet — will be assigned lazily in timeupdate
+    const inactive = videoB.current!;
+    inactive.preload = "none";
+    inactive.removeAttribute("src");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -138,6 +159,9 @@ export default function SegmentedVideoPlayer({
 
     const actualSegDur = active.duration;
     const nextIdx = seg + 1;
+
+    // FIX: Lazy preload — only load next segment when 75% through current one.
+    // This prevents dual-stream bandwidth competition on mobile.
     if (
       isFinite(actualSegDur) && actualSegDur > 0 &&
       active.currentTime / actualSegDur > 0.75 &&
@@ -145,11 +169,7 @@ export default function SegmentedVideoPlayer({
       segQueue.current < nextIdx
     ) {
       const inactive = getInactive();
-      if (inactive) {
-        inactive.src = segments[nextIdx].url;
-        inactive.onloadedmetadata = () => onMetadata(nextIdx, inactive);
-        segQueue.current = nextIdx;
-      }
+      if (inactive) scheduleNextSegment(nextIdx, inactive);
     }
 
     const now = Date.now();
@@ -172,7 +192,10 @@ export default function SegmentedVideoPlayer({
     }
 
     const inactive = getInactive()!;
+
+    // If the inactive video wasn't preloaded yet (very short segment), load now
     if (!inactive.src || inactive.src !== segments[nextIdx].url) {
+      inactive.preload = "auto";
       inactive.src = segments[nextIdx].url;
       inactive.onloadedmetadata = () => onMetadata(nextIdx, inactive);
     }
@@ -186,12 +209,14 @@ export default function SegmentedVideoPlayer({
     // Use a small delay for iOS — it needs a tick before play() after src swap
     setTimeout(() => { inactive.play().catch(() => {}); }, 50);
 
+    // Queue the segment AFTER next into the now-old active element (lazy)
     const afterNext = nextIdx + 1;
     if (afterNext < segments.length) {
       const oldActive = getActive()!;
-      oldActive.src = segments[afterNext].url;
-      oldActive.onloadedmetadata = () => onMetadata(afterNext, oldActive);
-      segQueue.current = afterNext;
+      oldActive.preload = "none";
+      oldActive.removeAttribute("src");
+      // Will be scheduled lazily when inactive (now active) hits 75%
+      segQueue.current = nextIdx; // reset queue to current so next timeupdate queues afterNext
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segments, getActive, getInactive, onProgress]);
@@ -302,22 +327,78 @@ export default function SegmentedVideoPlayer({
       const active   = getActive()!;
       const inactive = getInactive()!;
       const wasPlaying = !active.paused;
+      active.preload = "auto";
       active.src = segments[segIdx].url;
       active.onloadedmetadata = () => {
         onMetadata(segIdx, active);
         active.currentTime = localTime;
         if (wasPlaying) active.play().catch(() => {});
       };
+      // Prequeue next from seek point
       const nextIdx = segIdx + 1;
       if (nextIdx < segments.length) {
-        inactive.src = segments[nextIdx].url;
-        inactive.onloadedmetadata = () => onMetadata(nextIdx, inactive);
-        segQueue.current = nextIdx;
+        inactive.preload = "none";
+        inactive.removeAttribute("src");
+        segQueue.current = segIdx; // reset — timeupdate will re-queue when at 75%
       }
       setCurrentSeg(segIdx);
       currentSegRef.current = segIdx;
     }
     setGlobalTime(clamped);
+  }
+
+  /**
+   * FIX: iOS 17 Pro fullscreen.
+   *
+   * webkitEnterFullscreen() fails silently on iOS 17+ if called while the
+   * video readyState < HAVE_METADATA (1). This is most common with large
+   * segment files that haven't finished their initial metadata fetch.
+   *
+   * Strategy:
+   *   1. If readyState >= HAVE_METADATA → call immediately (works instantly).
+   *   2. If not → add a one-shot loadedmetadata listener, then call from there.
+   *   3. Also set a 3-second timeout fallback — if metadata never loads
+   *      (e.g. network error), bail out gracefully rather than hanging forever.
+   */
+  function enterIOSFullscreen(videoEl: HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitDisplayingFullscreen?: boolean }) {
+    if (!videoEl.webkitEnterFullscreen) return; // not iOS Safari
+
+    const doEnter = () => {
+      try { videoEl.webkitEnterFullscreen!(); } catch { /* ignore race */ }
+    };
+
+    // readyState 1 = HAVE_METADATA — minimum required by iOS 17 Safari
+    if (videoEl.readyState >= 1) {
+      doEnter();
+      return;
+    }
+
+    // Video metadata not yet loaded — wait for it with a safety timeout
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      videoEl.removeEventListener("loadedmetadata", onReady);
+      // Last-ditch attempt even without metadata (older iOS may allow it)
+      doEnter();
+    }, 3000);
+
+    function onReady() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      videoEl.removeEventListener("loadedmetadata", onReady);
+      doEnter();
+    }
+
+    videoEl.addEventListener("loadedmetadata", onReady, { once: true });
+
+    // Trigger metadata load if we haven't started yet (preload="none" scenario)
+    if (!videoEl.src && segments[currentSegRef.current]) {
+      videoEl.preload = "auto";
+      videoEl.src = segments[currentSegRef.current].url;
+      videoEl.load();
+    }
   }
 
   function toggleFullscreen() {
@@ -330,12 +411,18 @@ export default function SegmentedVideoPlayer({
 
     if (isIOS()) {
       // iOS: fullscreen must be called on the active <video> element
-      const activeVid = getActive() as any;
+      const activeVid = getActive() as (HTMLVideoElement & {
+        webkitExitFullscreen?: () => void;
+        webkitEnterFullscreen?: () => void;
+        webkitDisplayingFullscreen?: boolean;
+      }) | null;
       if (!activeVid) return;
+
       if (isFs || activeVid.webkitDisplayingFullscreen) {
         if (activeVid.webkitExitFullscreen) activeVid.webkitExitFullscreen();
       } else {
-        if (activeVid.webkitEnterFullscreen) activeVid.webkitEnterFullscreen();
+        // FIX: Use the guarded enter function that handles readyState
+        enterIOSFullscreen(activeVid as any);
       }
       return;
     }
@@ -387,20 +474,26 @@ export default function SegmentedVideoPlayer({
         We don't need canvas read-access, so CORS is unnecessary here.
 
         webkit-playsinline + playsInline are both set for max iOS compat.
+
+        FIX (slow loading): Both elements start with preload="none".
+        The active element's preload is set to "auto" programmatically
+        via the initial load effect. The inactive element's preload stays
+        "none" until timeupdate reaches 75% of the current segment —
+        preventing bandwidth competition on slow mobile connections.
       */}
       <video ref={videoA}
         className="absolute inset-0 w-full h-full object-contain"
         style={{ zIndex: activeRef === "A" ? 10 : 1, opacity: activeRef === "A" ? 1 : 0 }}
         playsInline
         webkit-playsinline="true"
-        preload="metadata"
+        preload="none"
       />
       <video ref={videoB}
         className="absolute inset-0 w-full h-full object-contain"
         style={{ zIndex: activeRef === "B" ? 10 : 1, opacity: activeRef === "B" ? 1 : 0 }}
         playsInline
         webkit-playsinline="true"
-        preload="metadata"
+        preload="none"
       />
 
       {buffering && (
