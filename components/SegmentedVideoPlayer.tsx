@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Play, Pause, Volume2, VolumeX, Maximize2, Minimize2, Loader2, Wifi, ChevronUp, Check, Settings2 } from "lucide-react";
+import { hardenVideoElement } from "@/lib/screen-capture-guard";
 
 type QualityLevel = "auto" | "low" | "medium" | "high";
 const QUALITY_OPTIONS: { value: QualityLevel; label: string; desc: string }[] = [
@@ -226,9 +227,14 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
     queueRef.current = idx;
   }
 
-  // ── Mount: load first segment, wire canplay → auto-play ──────────────────
+  // Mount: load first segment, wire canplay → auto-play
   useEffect(()=>{
     if(!segments.length) return;
+
+    // L2: Harden both video elements immediately on mount
+    if (vA.current) hardenVideoElement(vA.current);
+    if (vB.current) hardenVideoElement(vB.current);
+
     const c=buildCum(segments.map(s=>s.duration||0));
     let ss=0, lt=lastTimestamp;
     for(let i=segments.length-1;i>=0;i--) { if(lastTimestamp>=c[i]){ss=i;lt=lastTimestamp-c[i];break;} }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CldVideoPlayer } from "next-cloudinary";
 import "next-cloudinary/dist/cld-video-player.css";
-import { Loader2, AlertCircle, Lock, ShieldAlert, Maximize2, Minimize2, ChevronUp, Check, Settings2 } from "lucide-react";
+import { Loader2, AlertCircle, Lock, Maximize2, Minimize2, ChevronUp, Check, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CloudinaryVideoPlayer } from "next-cloudinary";
 import Image from "next/image";
@@ -11,190 +11,97 @@ import type { MediaType } from "@/types";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import SegmentedVideoPlayer, { type SegmentInfo } from "@/components/SegmentedVideoPlayer";
-import {
-  installScreenCaptureGuard,
-  uninstallScreenCaptureGuard,
-  hardenVideoElement,
-} from "@/lib/screen-capture-guard";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ScreenProtector — Production-grade, 5-layer screen recording shield
-//
-// L1  API poisoning  (getDisplayMedia / MediaRecorder / Canvas drawImage)
-// L2  Video hardening (PiP disabled, remote-playback off, no native controls)
-// L3  Visibility lock (tab focus, window blur, screenshot key combos)
-// L4  Forensic watermark (moving per-user text, imperceptible to viewers)
-// L5  CSS isolation   (new stacking context, prevents extension compositing)
-// ─────────────────────────────────────────────────────────────────────────────
-let _spInstanceCounter = 0;
-
+// ── Screen Protection Component ───────────────────────────────────────────────
 function ScreenProtector({ children }: { children: React.ReactNode }) {
-  const user = useAuthStore((state) => state.user);
-  const wrapperRef  = useRef<HTMLDivElement>(null);
-  const filterId    = useRef(`pvod-wm-${++_spInstanceCounter}`);
-
-  const [windowHidden,    setWindowHidden]    = useState(false);
-  const [captureDetected, setCaptureDetected] = useState(false);
-
-  const wmText = user ? `${user.email} · ${user.uid}` : "PremiumVOD · Protected";
-
-  // L1 — Install API-level capture guard
+  const user = useAuthStore(state => state.user);
+  const [isHidden, setIsHidden] = useState(false);
+  
   useEffect(() => {
-    installScreenCaptureGuard();
-    return () => uninstallScreenCaptureGuard();
-  }, []);
+    const handleVisibilityChange = () => {
+      setIsHidden(document.hidden || !document.hasFocus());
+    };
+    
+    const handleBlur = () => setIsHidden(true);
+    const handleFocus = () => setIsHidden(false);
 
-  // L2 — Harden every <video> inside this wrapper (including dynamically added)
-  useEffect(() => {
-    const root = wrapperRef.current;
-    if (!root) return;
-    const hardenAll = () =>
-      root.querySelectorAll<HTMLVideoElement>("video").forEach(hardenVideoElement);
-    hardenAll();
-    const obs = new MutationObserver((muts) => {
-      if (muts.some((m) => m.type === "childList" && m.addedNodes.length)) hardenAll();
-    });
-    obs.observe(root, { childList: true, subtree: true });
-    return () => obs.disconnect();
-  }, []);
+    const blockKeys = (e: KeyboardEvent) => {
+       // Block F12, Ctrl+Shift+I, Ctrl+Shift+C, Ctrl+Shift+J, Ctrl+U
+       if (e.key === "F12" || 
+           (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i" || e.key === "C" || e.key === "c" || e.key === "J" || e.key === "j")) ||
+           (e.ctrlKey && (e.key === "U" || e.key === "u"))) {
+         e.preventDefault();
+       }
+       // Block Win+Shift+S or Cmd+Shift+4 (Heuristic for screenshot tools)
+       if ((e.metaKey || e.ctrlKey) && e.shiftKey && ["S", "s", "4", "3", "5"].includes(e.key)) {
+         setIsHidden(true);
+         setTimeout(() => setIsHidden(false), 3000);
+       }
+    };
 
-  // L3A — Visibility / focus lock
-  useEffect(() => {
-    const onVis   = () => setWindowHidden(document.hidden);
-    const onBlur  = () => setWindowHidden(true);
-    const onFocus = () => { if (!document.hidden) setWindowHidden(false); };
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("blur",  onBlur);
-    window.addEventListener("focus", onFocus);
-    setWindowHidden(document.hidden || !document.hasFocus());
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("keydown", blockKeys);
+
+    setIsHidden(document.hidden || !document.hasFocus());
+
     return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("blur",  onBlur);
-      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("keydown", blockKeys);
     };
   }, []);
 
-  // L3B — Screenshot keyboard heuristics + DevTools blocking
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-
-      // Block DevTools
-      if (
-        e.key === "F12" ||
-        (e.ctrlKey && e.shiftKey && /^[icjICJ]$/.test(e.key)) ||
-        (e.ctrlKey && /^[uU]$/.test(e.key))
-      ) {
-        e.preventDefault();
-      }
-
-      // Screenshot heuristics: Win+Shift+S, Cmd+Shift+3/4/5, PrtSc, Ctrl+P
-      const isCapture =
-        ((e.metaKey || e.ctrlKey) && e.shiftKey && /^[sS345pP]$/.test(e.key)) ||
-        e.key === "PrintScreen" ||
-        (e.altKey && e.key === "PrintScreen") ||
-        (e.ctrlKey && /^[pP]$/.test(e.key));
-
-      if (isCapture) {
-        e.preventDefault();
-        setCaptureDetected(true);
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => setCaptureDetected(false), 4000);
-      }
-    };
-    window.addEventListener("keydown", onKey, { capture: true });
-    return () => {
-      window.removeEventListener("keydown", onKey, { capture: true });
-      if (timer) clearTimeout(timer);
-    };
-  }, []);
-
-  const showShield = windowHidden || captureDetected;
-  const stopEvent  = (e: React.SyntheticEvent) => e.preventDefault();
+  const watermarkText = user ? `${user.email} - ${user.uid}` : "Premium Content Protected";
 
   return (
-    <div
-      ref={wrapperRef}
-      className="relative w-full h-full"
-      onContextMenu={stopEvent}
-      onDragStart={stopEvent}
-      style={{
-        userSelect: "none",
-        WebkitUserSelect: "none",
-        isolation: "isolate",         // L5: new stacking context
-        pointerEvents: showShield ? "none" : "auto",
-      }}
+    <div 
+      className="relative w-full h-full group"
+      onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
     >
-      {/* Video content — hidden (not blurred) when shield is active */}
-      <div style={{ visibility: showShield ? "hidden" : "visible", width: "100%", height: "100%" }}>
-        {children}
+      <div className={`w-full h-full transition-all duration-300 ${isHidden ? 'blur-[40px] opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`}>
+         {children}
       </div>
-
-      {/* L4 — Moving forensic watermark */}
-      {!showShield && (
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden" style={{ zIndex: 100 }}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="absolute whitespace-nowrap select-none"
-              style={{
-                top: `${12 + i * 20}%`,
-                left: "-60%",
-                color: "rgba(255,255,255,0.16)",
-                fontWeight: 700,
-                fontSize: "clamp(10px,1.3vw,16px)",
-                fontFamily: "monospace",
-                transform: "rotate(-12deg)",
-                animation: `pvod-wm-drift ${18 + i * 4}s linear infinite ${i % 2 === 0 ? "alternate" : "alternate-reverse"}`,
-                mixBlendMode: "overlay",
-              }}
-            >
-              {`${wmText} • ${wmText} • ${wmText}`}
-            </div>
-          ))}
-          <style>{`
-            @keyframes pvod-wm-drift {
-              0%   { transform: translateX(0)    rotate(-12deg); }
-              100% { transform: translateX(120%) rotate(-12deg); }
-            }
-          `}</style>
-        </div>
+      
+      {/* Dynamic Watermarks */}
+      {!isHidden && (
+         <div className="pointer-events-none absolute inset-0 z-[100] overflow-hidden opacity-30 mix-blend-overlay">
+           {[...Array(5)].map((_, i) => (
+             <div 
+               key={i} 
+               className="absolute text-white/40 font-bold text-lg md:text-2xl whitespace-nowrap"
+               style={{
+                 top: `${15 + i * 20}%`,
+                 left: `-50%`,
+                 animation: `float-watermark ${15 + i * 3}s linear infinite ${i % 2 === 0 ? 'alternate' : 'alternate-reverse'}`
+               }}
+             >
+               {watermarkText} • {watermarkText} • {watermarkText}
+             </div>
+           ))}
+           <style>{`
+             @keyframes float-watermark {
+               0% { transform: translateX(0) rotate(-15deg); }
+               100% { transform: translateX(100%) rotate(-15deg); }
+             }
+           `}</style>
+         </div>
       )}
 
-      {/* L3 — Sealed black shield overlay */}
-      {showShield && (
-        <div
-          className="absolute inset-0 flex flex-col items-center justify-center gap-5 rounded-xl"
-          style={{
-            zIndex: 9999,
-            background: "rgba(0,0,0,0.97)",
-            backdropFilter: "blur(48px) saturate(0)",
-            WebkitBackdropFilter: "blur(48px) saturate(0)",
-          }}
-        >
-          <div
-            className="w-20 h-20 rounded-full flex items-center justify-center"
-            style={{ background: "radial-gradient(circle, rgba(239,68,68,0.2) 0%, transparent 70%)" }}
-          >
-            <ShieldAlert className="w-10 h-10 text-red-400" style={{ filter: "drop-shadow(0 0 12px rgba(239,68,68,0.6))" }} />
-          </div>
-          <div className="text-center space-y-2 px-8">
-            <p className="text-white font-bold text-xl tracking-tight">
-              {captureDetected ? "Recording Blocked" : "Playback Protected"}
-            </p>
-            <p className="text-white/50 text-sm max-w-xs mx-auto leading-relaxed">
-              {captureDetected
-                ? "Screen recording is disabled for premium content. This attempt has been logged."
-                : "Return focus to the window to resume playback."}
-            </p>
-          </div>
-          {captureDetected && (
-            <div className="text-[10px] font-mono text-white/20 px-3 py-1 rounded-full border border-white/10">
-              {wmText}
-            </div>
-          )}
+      {/* Overlay when hidden */}
+      {isHidden && (
+        <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-3xl text-white flex-col gap-4 rounded-xl border border-white/10">
+           <div className="w-16 h-16 rounded-full bg-destructive/20 flex items-center justify-center">
+             <Lock className="w-8 h-8 text-destructive animate-pulse" />
+           </div>
+           <p className="text-2xl font-bold">Playback Protected</p>
+           <p className="text-muted-foreground text-sm max-w-sm text-center">
+             Screen recording, screenshots, or background playback is disabled for premium content. Please return focus to continue watching.
+           </p>
         </div>
       )}
     </div>
