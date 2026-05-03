@@ -559,6 +559,10 @@ export default function VideoPlayer({ videoId, onProgress }: VideoPlayerProps) {
           playerRef={playerRef}
           videoRef={videoRef}
           onEnded={() => { saveProgress(streamData.durationInSeconds, true); }}
+          // BUG 5 NOTE: Audio dropout on HLS quality-variant switches is already
+          // prevented by the `key` prop above: key={`${videoId}-${quality}`} forces
+          // a full React remount on every quality change, which creates a brand-new
+          // hls.js instance with no stale audio group — no extra playerOptions needed.
         />
       </ScreenProtector>
     </div>

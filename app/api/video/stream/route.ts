@@ -15,11 +15,12 @@ import { isSubscriptionValid } from "@/lib/subscription-utils";
 // first viewer of a new tier pays a ~2-5s transcode delay; every subsequent
 // play is served from the CDN cache instantly.
 interface QualityTier {
-  label: string;
-  width: number;
-  height: number;
-  bitRate: string;
-  quality: string;
+  label:         string;
+  width:         number;
+  height:        number;
+  videoBitRate:  string; // video-only bitrate cap (audio is budgeted separately)
+  audioBitRate:  string; // audio bitrate — always preserved; never squeezed by video cap
+  quality:       string;
 }
 
 const QUALITY_TIERS: Record<string, QualityTier> = {
@@ -27,21 +28,28 @@ const QUALITY_TIERS: Record<string, QualityTier> = {
     // 480p — very old Android phones, 2G/3G networks
     label: "480p",
     width: 854, height: 480,
-    bitRate: "1200k",
+    // BUG 4 FIX: Previously a single `bit_rate: "1200k"` was used as a combined
+    // video+audio budget. At 480p the video alone can consume the full budget,
+    // causing Cloudinary to silently drop the audio stream. Splitting into
+    // separate videoBitRate + audioBitRate guarantees audio is always included.
+    videoBitRate: "900k",
+    audioBitRate: "96k",
     quality: "auto:eco",
   },
   medium: {
     // 720p — default for most mobile + average networks
     label: "720p",
     width: 1280, height: 720,
-    bitRate: "2500k",
+    videoBitRate: "2000k",
+    audioBitRate: "128k",
     quality: "auto:good",
   },
   high: {
     // 1080p — desktop, large screens, fast connections
     label: "1080p",
     width: 1920, height: 1080,
-    bitRate: "5000k",
+    videoBitRate: "4000k",
+    audioBitRate: "192k",
     quality: "auto:good",
   },
 };
@@ -142,12 +150,16 @@ export async function GET(request: NextRequest) {
         const cld = getCloudinaryInstance(seg.storageBucket);
 
         // Transformation chain:
-        // 1. h264 + aac    — universal browser compatibility (fixes HEVC/iPhone)
-        // 2. w_ + h_ limit — cap resolution to tier (never upscales)
-        // 3. q_auto:*      — perceptual quality optimiser (40-60% size reduction)
-        // 4. br_           — cap bitrate to prevent excessive data usage
+        // Layer 1: transcode video+audio to universal codecs, cap resolution + quality
+        //          video_bit_rate caps video-only — audio budget is separate (Bug 4 fix)
+        // Layer 2: explicit audio codec + frequency to prevent Cloudinary dropping
+        //          the audio stream when the video bitrate cap is very tight.
         //
-        // Result: 4K iPhone segment: 80-100MB → 5-8MB (mobile) or 12-18MB (desktop)
+        // BUG 4 FIX: The old single `bit_rate` param was a combined video+audio
+        // budget. For low quality (480p / 900k total) Cloudinary silently dropped
+        // the entire audio stream to fit within the cap. Splitting into per-stream
+        // bitrates with `video_bit_rate` guarantees audio is always preserved.
+        //
         // Cloudinary caches each (publicId × transformation) pair on first access.
         const url = cld.url(seg.publicId, {
           resource_type:  "video",
@@ -156,13 +168,19 @@ export async function GET(request: NextRequest) {
           secure:         true,
           transformation: [
             {
-              video_codec:  "h264",
-              audio_codec:  "aac",
-              width:         tier.width,
-              height:        tier.height,
-              crop:          "limit",        // never upscale
-              quality:       tier.quality,   // perceptual optimisation
-              bit_rate:      tier.bitRate,   // hard bitrate ceiling
+              // Layer 1 — video transcode
+              video_codec:     "h264",
+              audio_codec:     "aac",
+              width:            tier.width,
+              height:           tier.height,
+              crop:             "limit",            // never upscale
+              quality:          tier.quality,        // perceptual optimisation
+              video_bit_rate:   tier.videoBitRate,   // video-only cap (audio NOT included)
+            },
+            {
+              // Layer 2 — lock audio so it is never squeezed out by the video cap
+              audio_codec:      "aac",
+              audio_frequency:  44100,
             },
           ],
         });
