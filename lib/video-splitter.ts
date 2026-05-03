@@ -41,7 +41,7 @@ import {
   isMp4Compatible,
 } from "./video-splitter-shared";
 
-import { splitVideoFileMobile } from "./mp4box-splitter";
+import { splitVideoFileMobile, HevcDetectedError } from "./mp4box-splitter";
 import type { SplitSegment, SplitProgress } from "./video-splitter-shared";
 
 // ─── ffmpeg.wasm setup ────────────────────────────────────────────────────────
@@ -175,13 +175,13 @@ async function splitVideoFileFFmpeg(
  * Split a video File into ≤90 MB segments.
  *
  * Routing:
- *  1. File ≤ 95 MB           → return as-is (no split needed)
- *  2. MP4 / MOV / M4V / HEIF → MP4Box.js streaming splitter
- *                               Works on BOTH mobile AND desktop.
- *                               No SharedArrayBuffer, no WASM heap, no COEP needed.
- *                               Supports up to 5 GB.
- *  3. MKV / AVI / WebM       → ffmpeg.wasm (desktop only, up to 3 GB)
- *                               Requires cross-origin isolation (COEP).
+ *  1. File ≤ 95 MB              → return as-is (no split needed)
+ *  2. MP4 / MOV / M4V (H264)    → MP4Box.js streaming splitter
+ *                                  Works on BOTH mobile AND desktop.
+ *                                  No SharedArrayBuffer, no WASM heap, no COEP needed.
+ *  3. MP4 / MOV (HEVC / hvc1)   → FFmpeg on desktop (handles HE-AACv1 audio correctly)
+ *                                  Mobile: rejected with a clear error message.
+ *  4. MKV / AVI / WebM          → FFmpeg (desktop only, up to 3 GB)
  */
 export async function splitVideoFile(
   file: File,
@@ -207,7 +207,25 @@ export async function splitVideoFile(
         `Please trim the video or compress it before uploading.`
       );
     }
-    return splitVideoFileMobile(file, onProgress, signal);
+    try {
+      return await splitVideoFileMobile(file, onProgress, signal);
+    } catch (err) {
+      // HEVC audio cannot be reliably packaged by MP4Box — re-route to FFmpeg
+      // (desktop) which correctly re-encodes HE-AACv1 / QuickTime audio via
+      // `-c:a aac`. Mobile users get a clear actionable error instead.
+      if (err instanceof HevcDetectedError) {
+        if (mobile) {
+          throw new Error(
+            "HEVC (H.265) videos are not supported for direct mobile upload. " +
+            "Please convert your video to H.264 (MP4) first using any free converter, " +
+            "then upload the converted file."
+          );
+        }
+        // Desktop: fall through to FFmpeg below
+        return splitVideoFileFFmpeg(file, onProgress);
+      }
+      throw err; // any other error — rethrow as-is
+    }
   }
 
   // ── Non-MP4 formats (MKV, AVI, WebM) — ffmpeg.wasm, desktop only ────────

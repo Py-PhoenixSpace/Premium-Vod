@@ -799,69 +799,90 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button onClick={toggle} className="text-white hover:text-white/80 transition-colors">
-              {playing ? <Pause className="w-5 h-5" fill="white" /> : <Play className="w-5 h-5" fill="white" />}
-            </button>
-            {!mobile && (
-              <>
-                <button onClick={()=>setMuted(v=>!v)} className="text-white hover:text-white/80 transition-colors">
-                  {muted||vol===0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                </button>
-                <input type="range" min={0} max={1} step={0.05} value={muted?0:vol}
-                  onChange={e=>{setVol(Number(e.target.value));setMuted(false);}}
-                  className="w-20 accent-white h-1 cursor-pointer" onClick={e=>e.stopPropagation()} />
-              </>
-            )}
-            <span className="text-white/80 text-xs font-mono ml-1">{fmt(gt)} / {tLabel}</span>
-            <div className="flex-1" />
-            {/* Speed selector */}
-            <select value={speed} onChange={e=>{e.stopPropagation();setSpeed(Number(e.target.value));}}
-              onClick={e=>e.stopPropagation()}
-              className="bg-transparent text-white/70 text-xs border border-white/20 rounded px-1 py-0.5 cursor-pointer hover:text-white hover:border-white/40 transition-colors">
-              {[0.5,0.75,1,1.25,1.5,2].map(s=><option key={s} value={s} className="bg-black text-white">{s===1?"Normal":`${s}×`}</option>)}
-            </select>
+          {/* ── Controls row: adaptive layout ────────────────────────────────
+               Desktop: single row  [Play][Vol][Slider][Time]──────[Speed][Quality][FS]
+               Mobile:  two rows
+                 Row 1: [Play]──────────────────────────────────────────[Time]
+                 Row 2: ─────────────────────────────[Speed][Quality][Fullscreen]      */}
+          <div className={`flex ${mobile ? "flex-col gap-1.5" : "items-center gap-3"}`}>
 
-            {/* Quality picker — always visible */}
-            <div className="relative" onClick={e=>e.stopPropagation()}>
-              <button
-                onClick={()=>setShowQualityMenu(v=>!v)}
-                className="flex items-center gap-1 text-white/70 text-xs border border-white/20 rounded
-                           px-1.5 py-0.5 hover:text-white hover:border-white/40 transition-colors"
-                title="Quality"
-              >
-                <Settings2 className="w-3 h-3" />
-                <span>{currentQuality==="auto"
-                  ? `Auto${resolvedQualityLabel?` (${resolvedQualityLabel})`:""}`
-                  : QUALITY_OPTIONS.find(o=>o.value===currentQuality)?.label??"Auto"}
-                </span>
-                <ChevronUp className={`w-3 h-3 transition-transform duration-150 ${showQualityMenu?"":"rotate-180"}`} />
+            {/* Row 1: play + (desktop: vol slider) + timestamp */}
+            <div className="flex items-center gap-3">
+              <button onClick={toggle} className="text-white hover:text-white/80 transition-colors">
+                {playing ? <Pause className="w-5 h-5" fill="white" /> : <Play className="w-5 h-5" fill="white" />}
               </button>
-
-              {showQualityMenu && (
-                <div className="absolute bottom-full mb-2 right-0 bg-black/95 border border-white/15
-                                rounded-xl overflow-hidden min-w-[152px] shadow-2xl backdrop-blur-md"
-                     style={{zIndex:50}}>
-                  <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">Quality</p>
-                  {QUALITY_OPTIONS.map(opt=>(
-                    <button key={opt.value}
-                      onClick={()=>{ setShowQualityMenu(false); onQualityChange?.(opt.value); }}
-                      className={`w-full flex items-center justify-between px-3 py-1.5 text-left
-                                  hover:bg-white/10 transition-colors
-                                  ${(currentQuality??"auto")===opt.value?"text-violet-400":"text-white/80"}`}
-                    >
-                      <span className="text-xs font-medium">{opt.label}</span>
-                      <span className="text-[10px] text-white/35 ml-2">{opt.desc}</span>
-                      {(currentQuality??"auto")===opt.value&&<Check className="w-3 h-3 text-violet-400 ml-2 shrink-0"/>}
-                    </button>
-                  ))}
-                </div>
+              {!mobile && (
+                <>
+                  <button onClick={()=>setMuted(v=>!v)} className="text-white hover:text-white/80 transition-colors">
+                    {muted||vol===0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                  <input type="range" min={0} max={1} step={0.05} value={muted?0:vol}
+                    onChange={e=>{setVol(Number(e.target.value));setMuted(false);}}
+                    className="w-20 accent-white h-1 cursor-pointer" onClick={e=>e.stopPropagation()} />
+                </>
               )}
+              <span className="text-white/80 text-xs font-mono ml-1">{fmt(gt)} / {tLabel}</span>
+              {/* Spacer — pushes right-side controls to the end on desktop */}
+              {!mobile && <div className="flex-1" />}
             </div>
 
-            <button onClick={e=>{e.stopPropagation();toggleFs();}} className="text-white hover:text-white/80 transition-colors p-1" title="Fullscreen (F)">
-              {isFs ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
+            {/* Row 2 (mobile) / right section (desktop): Speed + Quality + Fullscreen */}
+            <div className={`flex items-center gap-2 ${mobile ? "justify-end" : ""}`}>
+              {/* Speed selector — always visible on both mobile and desktop */}
+              <select
+                value={speed}
+                onChange={e=>{e.stopPropagation();setSpeed(Number(e.target.value));}}
+                onClick={e=>e.stopPropagation()}
+                className="text-white text-xs border border-white/25 rounded px-1.5 py-0.5 cursor-pointer
+                           bg-black/70 hover:border-white/50 hover:bg-black/90 transition-colors
+                           appearance-none focus:outline-none"
+                title="Playback speed"
+              >
+                {[0.5,0.75,1,1.25,1.5,2].map(s=><option key={s} value={s} className="bg-black text-white">{s===1?"1×":`${s}×`}</option>)}
+              </select>
+
+              {/* Quality picker — always visible */}
+              <div className="relative" onClick={e=>e.stopPropagation()}>
+                <button
+                  onClick={()=>setShowQualityMenu(v=>!v)}
+                  className="flex items-center gap-1 text-white/80 text-xs border border-white/25 rounded
+                             px-1.5 py-0.5 hover:text-white hover:border-white/50 transition-colors bg-black/70"
+                  title="Quality"
+                >
+                  <Settings2 className="w-3 h-3" />
+                  <span>{currentQuality==="auto"
+                    ? `Auto${resolvedQualityLabel?` (${resolvedQualityLabel})`:""}`
+                    : QUALITY_OPTIONS.find(o=>o.value===currentQuality)?.label??"Auto"}
+                  </span>
+                  <ChevronUp className={`w-3 h-3 transition-transform duration-150 ${showQualityMenu?"":"rotate-180"}`} />
+                </button>
+
+                {showQualityMenu && (
+                  <div className="absolute bottom-full mb-2 right-0 bg-black/95 border border-white/15
+                                  rounded-xl overflow-hidden min-w-[152px] shadow-2xl backdrop-blur-md"
+                       style={{zIndex:50}}>
+                    <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">Quality</p>
+                    {QUALITY_OPTIONS.map(opt=>(
+                      <button key={opt.value}
+                        onClick={()=>{ setShowQualityMenu(false); onQualityChange?.(opt.value); }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 text-left
+                                    hover:bg-white/10 transition-colors
+                                    ${(currentQuality??"auto")===opt.value?"text-violet-400":"text-white/80"}`}
+                      >
+                        <span className="text-xs font-medium">{opt.label}</span>
+                        <span className="text-[10px] text-white/35 ml-2">{opt.desc}</span>
+                        {(currentQuality??"auto")===opt.value&&<Check className="w-3 h-3 text-violet-400 ml-2 shrink-0"/>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button onClick={e=>{e.stopPropagation();toggleFs();}} className="text-white hover:text-white/80 transition-colors p-1" title="Fullscreen (F)">
+                {isFs ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+            </div>
+
           </div>
         </div>
       </div>

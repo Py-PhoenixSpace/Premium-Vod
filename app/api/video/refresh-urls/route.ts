@@ -71,18 +71,16 @@ export async function GET(request: NextRequest) {
         type: "upload",
         sign_url: true,
         secure: true,
+        // Single-layer transformation — must be IDENTICAL to stream/route.ts
+        // so re-signed URLs hit the same Cloudinary CDN cache key.
+        // Two layers = double AAC encode = high-pitched/garbled audio.
         transformation: [
           {
-            // Layer 1 — video transcode (matches stream/route.ts)
-            video_codec:    "h264",   audio_codec:  "aac",
-            width:           tier.width, height:     tier.height,
-            crop:            "limit",  quality:      tier.quality,
-            video_bit_rate:  tier.videoBitRate,  // video-only cap
-          },
-          {
-            // Layer 2 — lock audio; never squeezed out by video bitrate cap
-            audio_codec:     "aac",
+            video_codec:     "h264",   audio_codec:     "aac",
             audio_frequency: 44100,
+            width:            tier.width, height:         tier.height,
+            crop:             "limit",  quality:         tier.quality,
+            video_bit_rate:   tier.videoBitRate,
           },
         ],
       });
