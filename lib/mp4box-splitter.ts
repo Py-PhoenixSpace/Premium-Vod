@@ -31,6 +31,16 @@ import {
 
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB
 
+/**
+ * Thrown by splitVideoFileMobile when the source video codec is HEVC.
+ * Caught by splitVideoFile in video-splitter.ts to re-route to FFmpeg,
+ * which correctly handles HEVC audio (HE-AACv1 / QuickTime mp4a) via
+ * `-c:a aac` re-encode at clean cut points.
+ */
+export class HevcDetectedError extends Error {
+  constructor() { super("HEVC_DETECTED"); this.name = "HevcDetectedError"; }
+}
+
 // ─── Internal types ───────────────────────────────────────────────────────────
 
 interface RawSample {
@@ -148,18 +158,53 @@ function buildSegmentBlob(
   // ── Audio track ──
   if (audioTrack && aSamples.length > 0 && aData) {
     const aEntry = aSamples[0].description as any;
+
+    // MOBILE AUDIO FIX: iPhone MOV files use QuickTime-extended mp4a boxes
+    // (version 1 or 2) which carry extra proprietary fields:
+    //   samples_per_packet, bytes_per_frame, bytes_per_sample, soundVersion2Data
+    // When we copy the ENTIRE aEntry into the output MP4Box file, MP4Box.js
+    // fails to serialize these QuickTime-specific fields correctly, producing
+    // a malformed mp4a box. The decoder then reads wrong samplerate / channel
+    // layout → pitch shift + stereo "collision" effect.
+    //
+    // FIX: Let addTrack() create a FRESH, standard (version 0) mp4a entry —
+    // this is always serialized correctly. Then surgically transplant ONLY the
+    // esds child box (which contains the AudioSpecificConfig / codec params)
+    // from the source aEntry into the fresh entry. The esds is a pure metadata
+    // box (fully parsed into JS objects by MP4Box), so it serializes reliably.
+    // Result: universally compatible mp4a header + correct codec configuration.
     const atid = oa.addTrack({
-      type:          aEntry.type,       // "mp4a", "ac-3", "ec-3", etc.
+      type:          "mp4a",                              // always output standard mp4a
       timescale:     audioTrack.timescale,
       channel_count: audioTrack.audio?.channel_count ?? 2,
       samplerate:    audioTrack.audio?.sample_rate   ?? 44100,
       samplesize:    audioTrack.audio?.sample_size   ?? 16,
     });
     if (atid) {
-      // BUG 2 FIX: look up by track_id so we never accidentally patch the
-      // video trak's stsd even if the traks array order changes.
       const aTrakOut = oa.moov.traks.find((t: any) => t.tkhd.track_id === atid);
-      if (aTrakOut) aTrakOut.mdia.minf.stbl.stsd.entries[0] = aEntry; // preserve esds / mp4a / ac-3 boxes
+      if (aTrakOut) {
+        // Get the fresh standard mp4a entry created by addTrack
+        const freshEntry = aTrakOut.mdia.minf.stbl.stsd.entries[0] as any;
+
+        // Transplant ONLY the esds box (AudioSpecificConfig).
+        // Try common field names used across MP4Box.js versions.
+        const sourceEsds = aEntry.esds ?? aEntry.ESDSBox ?? aEntry.boxes?.find((b: any) => b.type === "esds");
+        if (sourceEsds && freshEntry) {
+          freshEntry.esds = sourceEsds;
+        }
+
+        // Also copy the DecoderSpecificInfo if esds is nested differently
+        // (MP4Box version variance). This is a safety fallback.
+        if (!freshEntry?.esds && aEntry.DecoderSpecificInfo) {
+          try {
+            if (freshEntry.esds?.ES_Descriptor?.DecoderConfigDescriptor) {
+              freshEntry.esds.ES_Descriptor.DecoderConfigDescriptor.DecoderSpecificInfo =
+                aEntry.DecoderSpecificInfo;
+            }
+          } catch { /* ignore — standard mp4a entry will still play, just without ASC */ }
+        }
+      }
+
       const aBase = aSamples[0].dts;
       for (const s of aSamples) {
         const sStart = s.offset - aDataStart;
@@ -193,6 +238,15 @@ export async function splitVideoFileMobile(
 
   const { isoFile, info } = await parseMovMetadata(file, signal);
   const moov = (isoFile as any).moov;
+
+  // ── HEVC detection: bail out so FFmpeg can handle audio correctly ──────────
+  // HEVC files (.mov / .mp4 with hvc1/hev1 video) use HE-AACv1 or QuickTime-
+  // specific mp4a boxes that MP4Box.js cannot reliably serialize into new
+  // segment files without corrupting the AudioSpecificConfig. FFmpeg's
+  // `-c:a aac` re-encode handles all of these formats correctly.
+  const videoCodec = info.videoTracks[0]?.codec ?? "";
+  const isHevc = /^(hvc1|hev1|dvh1|dvhe)/i.test(videoCodec);
+  if (isHevc) throw new HevcDetectedError();
 
   const videoTrack = info.videoTracks[0] ?? null;
   const audioTrack = info.audioTracks[0] ?? null;

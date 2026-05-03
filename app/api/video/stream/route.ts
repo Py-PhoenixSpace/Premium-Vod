@@ -149,17 +149,16 @@ export async function GET(request: NextRequest) {
       const segmentUrls = video.segments.map((seg: any) => {
         const cld = getCloudinaryInstance(seg.storageBucket);
 
-        // Transformation chain:
-        // Layer 1: transcode video+audio to universal codecs, cap resolution + quality
-        //          video_bit_rate caps video-only — audio budget is separate (Bug 4 fix)
-        // Layer 2: explicit audio codec + frequency to prevent Cloudinary dropping
-        //          the audio stream when the video bitrate cap is very tight.
+        // Single-layer transformation: video + audio params in ONE pass.
         //
-        // BUG 4 FIX: The old single `bit_rate` param was a combined video+audio
-        // budget. For low quality (480p / 900k total) Cloudinary silently dropped
-        // the entire audio stream to fit within the cap. Splitting into per-stream
-        // bitrates with `video_bit_rate` guarantees audio is always preserved.
+        // IMPORTANT: Do NOT split into two transformation layers for audio.
+        // A second layer re-encodes the already-encoded AAC output from layer 1,
+        // producing two lossy encode passes. The interference between encode
+        // generations strips fundamental frequencies → high-pitched, garbled audio
+        // with no original voice (harmonics only). Always use a single layer.
         //
+        // `video_bit_rate` in Cloudinary controls VIDEO stream bitrate only —
+        // audio is encoded separately by `audio_codec` and is never starved.
         // Cloudinary caches each (publicId × transformation) pair on first access.
         const url = cld.url(seg.publicId, {
           resource_type:  "video",
@@ -168,19 +167,14 @@ export async function GET(request: NextRequest) {
           secure:         true,
           transformation: [
             {
-              // Layer 1 — video transcode
               video_codec:     "h264",
               audio_codec:     "aac",
+              audio_frequency: 44100,       // normalise sample rate (single pass only)
               width:            tier.width,
               height:           tier.height,
-              crop:             "limit",            // never upscale
-              quality:          tier.quality,        // perceptual optimisation
-              video_bit_rate:   tier.videoBitRate,   // video-only cap (audio NOT included)
-            },
-            {
-              // Layer 2 — lock audio so it is never squeezed out by the video cap
-              audio_codec:      "aac",
-              audio_frequency:  44100,
+              crop:             "limit",    // never upscale
+              quality:          tier.quality,
+              video_bit_rate:   tier.videoBitRate, // video-only bitrate cap
             },
           ],
         });
