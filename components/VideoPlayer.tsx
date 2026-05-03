@@ -23,20 +23,14 @@ import {
 // L1  API poisoning  (getDisplayMedia / MediaRecorder / Canvas drawImage)
 // L2  Video hardening (PiP disabled, remote-playback off, no native controls)
 // L3  Visibility lock (tab focus, window blur, screenshot key combos)
-// L4  Forensic watermark (moving per-user text, imperceptible to viewers)
-// L5  CSS isolation   (new stacking context, prevents extension compositing)
+// L4  CSS isolation   (new stacking context, prevents extension compositing)
 // ─────────────────────────────────────────────────────────────────────────────
-let _spInstanceCounter = 0;
 
 function ScreenProtector({ children }: { children: React.ReactNode }) {
-  const user = useAuthStore((state) => state.user);
-  const wrapperRef  = useRef<HTMLDivElement>(null);
-  const filterId    = useRef(`pvod-wm-${++_spInstanceCounter}`);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [windowHidden,    setWindowHidden]    = useState(false);
   const [captureDetected, setCaptureDetected] = useState(false);
-
-  const wmText = user ? `${user.email} · ${user.uid}` : "PremiumVOD · Protected";
 
   // L1 — Install API-level capture guard
   // Wrapped in try/catch so any unexpected browser-API error never crashes the component.
@@ -152,36 +146,7 @@ function ScreenProtector({ children }: { children: React.ReactNode }) {
         {children}
       </div>
 
-      {/* L4 — Moving forensic watermark */}
-      {!showShield && (
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden" style={{ zIndex: 100 }}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="absolute whitespace-nowrap select-none"
-              style={{
-                top: `${12 + i * 20}%`,
-                left: "-60%",
-                color: "rgba(255,255,255,0.16)",
-                fontWeight: 700,
-                fontSize: "clamp(10px,1.3vw,16px)",
-                fontFamily: "monospace",
-                transform: "rotate(-12deg)",
-                animation: `pvod-wm-drift ${18 + i * 4}s linear infinite ${i % 2 === 0 ? "alternate" : "alternate-reverse"}`,
-                mixBlendMode: "overlay",
-              }}
-            >
-              {`${wmText} • ${wmText} • ${wmText}`}
-            </div>
-          ))}
-          <style>{`
-            @keyframes pvod-wm-drift {
-              0%   { transform: translateX(0)    rotate(-12deg); }
-              100% { transform: translateX(120%) rotate(-12deg); }
-            }
-          `}</style>
-        </div>
-      )}
+
 
       {/* L3 — Sealed black shield overlay */}
       {showShield && (
@@ -206,15 +171,10 @@ function ScreenProtector({ children }: { children: React.ReactNode }) {
             </p>
             <p className="text-white/50 text-sm max-w-xs mx-auto leading-relaxed">
               {captureDetected
-                ? "Screen recording is disabled for premium content. This attempt has been logged."
+                ? "Screen recording is disabled for premium content."
                 : "Return focus to the window to resume playback."}
             </p>
           </div>
-          {captureDetected && (
-            <div className="text-[10px] font-mono text-white/20 px-3 py-1 rounded-full border border-white/10">
-              {wmText}
-            </div>
-          )}
         </div>
       )}
     </div>
