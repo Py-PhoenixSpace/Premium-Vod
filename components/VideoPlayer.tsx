@@ -39,9 +39,10 @@ function ScreenProtector({ children }: { children: React.ReactNode }) {
   const wmText = user ? `${user.email} · ${user.uid}` : "PremiumVOD · Protected";
 
   // L1 — Install API-level capture guard
+  // Wrapped in try/catch so any unexpected browser-API error never crashes the component.
   useEffect(() => {
-    installScreenCaptureGuard();
-    return () => uninstallScreenCaptureGuard();
+    try { installScreenCaptureGuard(); } catch (e) { console.warn("[ScreenGuard] install failed:", e); }
+    return () => { try { uninstallScreenCaptureGuard(); } catch { /* ignore */ } };
   }, []);
 
   // L2 — Harden every <video> inside this wrapper (including dynamically added)
@@ -59,18 +60,37 @@ function ScreenProtector({ children }: { children: React.ReactNode }) {
   }, []);
 
   // L3A — Visibility / focus lock
+  // MOBILE NOTE: We do NOT hide on window `blur` on touch devices because mobile
+  // browsers fire blur/focus constantly during scroll, virtual keyboard open, and
+  // browser chrome appear events. Doing so hides the video during normal use.
+  // We rely solely on the Page Visibility API (document.hidden) on mobile,
+  // which only fires when the user genuinely switches app or tabs.
   useEffect(() => {
-    const onVis   = () => setWindowHidden(document.hidden);
-    const onBlur  = () => setWindowHidden(true);
-    const onFocus = () => { if (!document.hidden) setWindowHidden(false); };
+    const isTouchDevice = typeof navigator !== "undefined" &&
+      (navigator.maxTouchPoints > 0 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent));
+
+    const onVis = () => setWindowHidden(document.hidden);
     document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("blur",  onBlur);
-    window.addEventListener("focus", onFocus);
-    setWindowHidden(document.hidden || !document.hasFocus());
+
+    // Only apply blur/focus lock on desktop — not on touch/mobile
+    let onBlur: (() => void) | null = null;
+    let onFocus: (() => void) | null = null;
+    if (!isTouchDevice) {
+      onBlur  = () => setWindowHidden(true);
+      onFocus = () => { if (!document.hidden) setWindowHidden(false); };
+      window.addEventListener("blur",  onBlur);
+      window.addEventListener("focus", onFocus);
+    }
+
+    // Only set hidden on desktop (don't hide immediately on mobile page load)
+    if (!isTouchDevice) {
+      setWindowHidden(document.hidden || !document.hasFocus());
+    }
+
     return () => {
       document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("blur",  onBlur);
-      window.removeEventListener("focus", onFocus);
+      if (onBlur)  window.removeEventListener("blur",  onBlur);
+      if (onFocus) window.removeEventListener("focus", onFocus);
     };
   }, []);
 
@@ -123,9 +143,9 @@ function ScreenProtector({ children }: { children: React.ReactNode }) {
       style={{
         userSelect: "none",
         WebkitUserSelect: "none",
-        isolation: "isolate",         // L5: new stacking context
+        isolation: "isolate" as React.CSSProperties["isolation"],
         pointerEvents: showShield ? "none" : "auto",
-      }}
+      } as React.CSSProperties}
     >
       {/* Video content — hidden (not blurred) when shield is active */}
       <div style={{ visibility: showShield ? "hidden" : "visible", width: "100%", height: "100%" }}>
