@@ -50,6 +50,14 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   const [muted, setMuted]         = useState(false);
   // D2: Persist volume across sessions
   const [vol, setVol]             = useState(() => typeof window !== "undefined" ? parseFloat(localStorage.getItem("pvod_vol") ?? "1") : 1);
+  // BUG 6 FIX: vol and muted are React state — they only propagate to video
+  // elements when the VALUES CHANGE via the useEffect below. But when a new
+  // segment URL is loaded into the inactive element, browsers can silently
+  // reset its audio state (volume → 1.0, muted → false) before we can
+  // re-apply it. Using always-fresh REFS (volRef, mutedRef) lets us read
+  // the current audio state inside event handlers without stale closures.
+  const volRef   = useRef(typeof window !== "undefined" ? parseFloat(localStorage.getItem("pvod_vol") ?? "1") : 1);
+  const mutedRef = useRef(false);
   const [gt, setGt]               = useState(lastTimestamp||0);
   const [stalled, setStalled]     = useState(false);  // mid-play stall
   const [isFs, setIsFs]           = useState(false);
@@ -196,6 +204,12 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
     // A1: Proactively refresh if the signed URL is about to expire
     if (isUrlExpired()) refreshUrls();
     const url = liveSegsRef.current[idx].url;
+    // BUG 6 FIX: Apply current volume/mute to the inactive element NOW,
+    // before setting src. Some browsers reset audio state on src change
+    // for cross-origin resources. Using refs guarantees fresh values even
+    // inside async/event callbacks where state would be stale.
+    el.volume = volRef.current;
+    el.muted  = mutedRef.current;
     el.preload = "auto";
     el.src = url;
     el.onloadedmetadata = () => setMeta(idx, el);
@@ -280,7 +294,14 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
-  useEffect(()=>{ [vA,vB].forEach(r=>{ if(r.current){r.current.volume=vol;r.current.muted=muted;} }); },[vol,muted]);
+  useEffect(()=>{
+    // Sync BOTH the video elements AND the always-fresh refs.
+    // The refs are used by queueNext() and doSwap() (Bug 6 fix) so they must
+    // be kept in sync here whenever the user changes volume or mute state.
+    volRef.current   = vol;
+    mutedRef.current = muted;
+    [vA,vB].forEach(r=>{ if(r.current){r.current.volume=vol;r.current.muted=muted;} });
+  },[vol,muted]);
 
   // ── timeupdate ────────────────────────────────────────────────────────────
   const onTime=useCallback(()=>{
@@ -360,6 +381,11 @@ export default function SegmentedVideoPlayer({ segments, totalDuration: propTota
       setActive(next);
       setCurSeg(ni); segRef.current=ni; queueRef.current=ni;
       inactiveReady.current=false;
+      // BUG 6 FIX: Re-apply volume/mute from refs right before play() so
+      // the swap never causes a momentary audio burst (volume reset to 1.0)
+      // or silent playback (muted reset to false on some browsers).
+      inEl.volume = volRef.current;
+      inEl.muted  = mutedRef.current;
       inEl.play().catch(()=>{});
       const an=ni+1;
       if(an<segments.length){

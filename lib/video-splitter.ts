@@ -124,11 +124,27 @@ async function splitVideoFileFFmpeg(
     onProgress?.({ phase: "splitting", segmentsDone: i, totalSegments, message: `Processing segment ${i + 1} of ${totalSegments}…` });
 
     const outName = `seg_${String(i).padStart(4, "0")}.mp4`;
+    // BUG 3 FIX: `-c copy` + fast-seek (`-ss` before `-i`) cuts audio at a
+    // non-frame boundary — audio has no keyframes, so every segment would
+    // start mid-AAC-frame: audible pop/click, first ~100ms silent, AV drift.
+    //
+    // Fix strategy:
+    //  • `-c:v copy`  — video stream is copied losslessly (no quality change)
+    //  • `-c:a aac`   — audio is RE-ENCODED so FFmpeg can start a clean frame
+    //                   at the exact cut point (no mid-frame artifact)
+    //  • `-async 1`   — resamples audio to fix any remaining pts drift
+    //  • `-ar 44100`  — normalise sample rate across all segments
+    //  • `-b:a 192k`  — high-quality audio bitrate (imperceptible vs source)
+    //  • `-ss` is placed AFTER `-i` (accurate seek) so the cut is frame-exact.
     await ffmpeg.exec([
-      "-ss", toTimestamp(startSec),
       "-i",  inputName,
+      "-ss", toTimestamp(startSec),   // accurate seek (after -i)
       "-t",  toTimestamp(durSec),
-      "-c",  "copy",
+      "-c:v", "copy",                  // lossless video stream copy
+      "-c:a", "aac",                   // re-encode audio for clean cut
+      "-ar",  "44100",                 // consistent sample rate
+      "-b:a", "192k",                  // audio quality
+      "-async", "1",                   // fix audio pts drift
       ...extraArgs,
       "-avoid_negative_ts", "make_zero",
       "-movflags", "+faststart",

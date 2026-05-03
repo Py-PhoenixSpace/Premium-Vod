@@ -127,8 +127,11 @@ function buildSegmentBlob(
 
   // Replace the blank stsd entry with the original one from the source file.
   // This preserves codec-specific boxes (avcC, hvcC, colr, pasp, etc.) exactly.
-  const vTrakOut = oa.moov.traks[oa.moov.traks.length - 1];
-  vTrakOut.mdia.minf.stbl.stsd.entries[0] = vEntry;
+  // BUG 2 FIX: look up by track_id, NOT by array position. Relying on
+  // `traks[traks.length - 1]` was fragile — if addTrack threw, the index
+  // shifted and we patched the wrong track, corrupting the codec descriptor.
+  const vTrakOut = oa.moov.traks.find((t: any) => t.tkhd.track_id === vtid);
+  if (vTrakOut) vTrakOut.mdia.minf.stbl.stsd.entries[0] = vEntry;
 
   const vBase = vSamples[0].dts;
   for (const s of vSamples) {
@@ -153,8 +156,10 @@ function buildSegmentBlob(
       samplesize:    audioTrack.audio?.sample_size   ?? 16,
     });
     if (atid) {
-      const aTrakOut = oa.moov.traks[oa.moov.traks.length - 1];
-      aTrakOut.mdia.minf.stbl.stsd.entries[0] = aEntry; // preserve esds / mp4a boxes
+      // BUG 2 FIX: look up by track_id so we never accidentally patch the
+      // video trak's stsd even if the traks array order changes.
+      const aTrakOut = oa.moov.traks.find((t: any) => t.tkhd.track_id === atid);
+      if (aTrakOut) aTrakOut.mdia.minf.stbl.stsd.entries[0] = aEntry; // preserve esds / mp4a / ac-3 boxes
       const aBase = aSamples[0].dts;
       for (const s of aSamples) {
         const sStart = s.offset - aDataStart;
@@ -233,11 +238,20 @@ export async function splitVideoFileMobile(
     const vEnd   = Math.max(...vSegSamples.map(s => s.offset + s.size));
     const vData  = await readSlice(file, vStart, vEnd);
 
-    // Find overlapping audio samples by DTS range
+    // Find overlapping audio samples by TIME range (in seconds).
+    // BUG 1 FIX: video DTS ticks and audio DTS ticks use DIFFERENT timescales
+    // (video: typically 90000 ticks/s, audio: typically 44100 ticks/s).
+    // Comparing raw ticks directly caused zero audio samples to match →
+    // every segment was silently produced without audio.
+    // Converting both sides to floating-point seconds before comparison is
+    // both correct and timescale-agnostic.
     const vDtsStart = vSegSamples[0].dts;
     const vDtsEnd   = vSegSamples.at(-1)!.dts + vSegSamples.at(-1)!.duration;
+    const vStartSec = vDtsStart / videoTrack.timescale;
+    const vEndSec   = vDtsEnd   / videoTrack.timescale;
+    const aTimescale = audioTrack ? audioTrack.timescale : 44100;
     const aSegSamples = aAllSamples.filter(
-      s => s.dts >= vDtsStart && s.dts < vDtsEnd
+      s => (s.dts / aTimescale) >= vStartSec && (s.dts / aTimescale) < vEndSec
     );
 
     let aData: ArrayBuffer | null = null;

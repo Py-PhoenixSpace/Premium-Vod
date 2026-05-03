@@ -18,11 +18,11 @@ import { isSubscriptionValid } from "@/lib/subscription-utils";
  * It only re-signs what's already in Firestore and validates access.
  */
 
-interface QualityTier { width: number; height: number; bitRate: string; quality: string; }
+interface QualityTier { width: number; height: number; videoBitRate: string; audioBitRate: string; quality: string; }
 const QUALITY_TIERS: Record<string, QualityTier> = {
-  low:    { width: 854,  height: 480,  bitRate: "1200k", quality: "auto:eco"  },
-  medium: { width: 1280, height: 720,  bitRate: "2500k", quality: "auto:good" },
-  high:   { width: 1920, height: 1080, bitRate: "5000k", quality: "auto:good" },
+  low:    { width: 854,  height: 480,  videoBitRate: "900k",  audioBitRate: "96k",  quality: "auto:eco"  },
+  medium: { width: 1280, height: 720,  videoBitRate: "2000k", audioBitRate: "128k", quality: "auto:good" },
+  high:   { width: 1920, height: 1080, videoBitRate: "4000k", audioBitRate: "192k", quality: "auto:good" },
 };
 
 export async function GET(request: NextRequest) {
@@ -71,11 +71,20 @@ export async function GET(request: NextRequest) {
         type: "upload",
         sign_url: true,
         secure: true,
-        transformation: [{
-          video_codec: "h264", audio_codec: "aac",
-          width: tier.width, height: tier.height,
-          crop: "limit", quality: tier.quality, bit_rate: tier.bitRate,
-        }],
+        transformation: [
+          {
+            // Layer 1 — video transcode (matches stream/route.ts)
+            video_codec:    "h264",   audio_codec:  "aac",
+            width:           tier.width, height:     tier.height,
+            crop:            "limit",  quality:      tier.quality,
+            video_bit_rate:  tier.videoBitRate,  // video-only cap
+          },
+          {
+            // Layer 2 — lock audio; never squeezed out by video bitrate cap
+            audio_codec:     "aac",
+            audio_frequency: 44100,
+          },
+        ],
       });
       return { index: seg.index, url, duration: seg.duration };
     });
